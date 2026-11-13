@@ -102,7 +102,7 @@
 </header>
 
 <main>
-  <div class="hint">Cole o link de qualquer anúncio do Goofish/Xianyu. O site busca <b>foto, preço e vendedor</b> pelo motor que você configurar (⚙️). As imagens vêm do CDN da Alibaba e abrem normal do Brasil.</div>
+  <div class="hint">Cole o link de qualquer anúncio do Goofish/Xianyu. O site busca <b>foto, preço e vendedor</b> pelo motor que você configurar (⚙️). As imagens vêm do CDN da Alibaba e abrem normal do Brasil. <span style="opacity:.6">· v3</span></div>
   <div id="status" class="status hidden"></div>
   <div id="result"></div>
 </main>
@@ -163,7 +163,10 @@
   var cfg = loadCfg();
   if(!cfg.mode) cfg.mode = "direct";
   if(!cfg.actor) cfg.actor = DEFAULT_ACTOR;
-  if(!cfg.input) cfg.input = DEFAULT_INPUT;
+  // The first version saved a generic startUrls template, which this actor ignores.
+  var OLD_INPUT = '{"startUrls":[{"url":"{{url}}"}]}';
+  if(!cfg.input || (cfg.actor===DEFAULT_ACTOR && cfg.input.replace(/\s/g,"")===OLD_INPUT)) cfg.input = DEFAULT_INPUT;
+  saveCfg(cfg);
 
   // ---------- helpers ----------
   function parseId(s){
