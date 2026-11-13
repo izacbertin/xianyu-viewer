@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>闲鱼 Viewer — ver anúncio por link</title>
+<style>
+  :root{
+    --xy-yellow:#FFE400;
+    --xy-yellow-deep:#FFD000;
+    --price:#FF5000;
+    --ink:#1a1a1a;
+    --muted:#8a8a8a;
+    --line:#ececec;
+    --bg:#f5f5f6;
+    --card:#ffffff;
+    --accent:#2b2b2b;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ink:#f2f2f2; --muted:#9a9a9a; --line:#2a2a2a; --bg:#121212; --card:#1c1c1c; --accent:#f2f2f2;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ink:#f2f2f2; --muted:#9a9a9a; --line:#2a2a2a; --bg:#121212; --card:#1c1c1c; --accent:#f2f2f2;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang SC","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}
+  a{color:inherit}
+  header.topbar{background:var(--xy-yellow);position:sticky;top:0;z-index:20}
+  .topwrap{max-width:1040px;margin:0 auto;display:flex;align-items:center;gap:16px;padding:12px 16px}
+  .logo{font-size:30px;font-weight:800;color:#1a1a1a;letter-spacing:1px;display:flex;align-items:center;gap:8px;white-space:nowrap}
+  .logo .fish{font-size:26px}
+  .searchbar{flex:1;display:flex;background:#fff;border-radius:22px;overflow:hidden;border:2px solid #1a1a1a}
+  .searchbar input{flex:1;border:0;outline:0;padding:10px 16px;font-size:15px;background:#fff;color:#1a1a1a;min-width:0}
+  .searchbar button{border:0;background:#1a1a1a;color:#FFE400;font-weight:700;padding:0 22px;cursor:pointer;font-size:15px}
+  .gear{background:transparent;border:0;cursor:pointer;font-size:20px;color:#1a1a1a;padding:4px}
+  main{max-width:1040px;margin:0 auto;padding:16px}
+  .hint{color:var(--muted);font-size:13px;margin:8px 2px 0}
+  .status{margin:18px 2px;font-size:15px}
+  .status.err{color:var(--price)}
+  .spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--muted);border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-3px;margin-right:8px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .detail{display:grid;grid-template-columns:420px 1fr;gap:24px;margin-top:16px}
+  @media (max-width:820px){.detail{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+  .gallery{padding:12px}
+  .hero{width:100%;aspect-ratio:1/1;object-fit:contain;background:#000;border-radius:12px}
+  .thumbs{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:10px}
+  .thumbs img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:8px;cursor:pointer;border:2px solid transparent}
+  .thumbs img.active{border-color:var(--xy-yellow-deep)}
+  .info{padding:4px 2px}
+  .price{color:var(--price);font-weight:800;line-height:1}
+  .price .cur{font-size:22px;vertical-align:4px}
+  .price .val{font-size:40px}
+  .title{font-size:18px;font-weight:600;margin:14px 0 6px;line-height:1.45}
+  .stats{display:flex;gap:18px;color:var(--muted);font-size:13px;margin:6px 0 16px}
+  .seller{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:8px}
+  .seller .ava{width:46px;height:46px;border-radius:50%;background:var(--xy-yellow);display:flex;align-items:center;justify-content:center;font-size:22px;flex:0 0 auto}
+  .seller .who{font-weight:600}
+  .seller .sub{color:var(--muted);font-size:13px;margin-top:3px}
+  .badge{display:inline-block;background:rgba(255,80,0,.12);color:var(--price);border-radius:6px;padding:2px 8px;font-size:12px;font-weight:600;margin-left:6px}
+  .desc{white-space:pre-wrap;line-height:1.6;margin-top:16px;font-size:15px;color:var(--ink)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+  .btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:9px 14px;cursor:pointer;font-size:14px;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+  .btn.primary{background:var(--xy-yellow);border-color:var(--xy-yellow-deep);color:#1a1a1a;font-weight:700}
+  details.raw{margin-top:24px}
+  details.raw summary{cursor:pointer;color:var(--muted);font-size:13px}
+  pre{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;overflow:auto;font-size:12px;max-height:360px}
+
+  /* modal */
+  .mask{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
+  .mask.open{display:flex}
+  .modal{background:var(--card);color:var(--ink);border-radius:16px;max-width:560px;width:100%;padding:22px;max-height:90vh;overflow:auto}
+  .modal h2{margin:0 0 4px;font-size:18px}
+  .modal p.sub{margin:0 0 16px;color:var(--muted);font-size:13px}
+  .field{margin:14px 0}
+  .field label{display:block;font-size:13px;font-weight:600;margin-bottom:6px}
+  .field input,.field textarea,.field select{width:100%;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:10px;padding:10px;font-size:14px;font-family:inherit}
+  .field textarea{min-height:64px;resize:vertical}
+  .field small{color:var(--muted);display:block;margin-top:5px;line-height:1.5}
+  .modal .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+  .tabs{display:flex;gap:8px;margin-bottom:6px}
+  .tabs button{flex:1;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:10px;padding:9px;cursor:pointer;font-size:13px}
+  .tabs button.on{background:var(--xy-yellow);border-color:var(--xy-yellow-deep);color:#1a1a1a;font-weight:700}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topwrap">
+    <div class="logo"><span class="fish">🐟</span>闲鱼</div>
+    <form class="searchbar" id="form">
+      <input id="q" placeholder="Cole o link do anúncio ou o ID (ex.: https://www.goofish.com/item?id=1096804187655)" autocomplete="off" />
+      <button type="submit">Ver</button>
+    </form>
+    <button class="gear" id="gear" title="Configurar motor de busca">⚙️</button>
+  </div>
+</header>
+
+<main>
+  <div class="hint">Cole o link de qualquer anúncio do Goofish/Xianyu. O site busca <b>foto, preço e vendedor</b> pelo motor que você configurar (⚙️). As imagens vêm do CDN da Alibaba e abrem normal do Brasil.</div>
+  <div id="status" class="status hidden"></div>
+  <div id="result"></div>
+</main>
+
+<!-- Config modal -->
+<div class="mask" id="mask">
+  <div class="modal">
+    <h2>Motor de busca</h2>
+    <p class="sub">O navegador não acessa o Goofish direto (bloqueio deles). É preciso um motor com proxy chinês. Escolha um modo:</p>
+    <div class="tabs">
+      <button type="button" id="tabDirect" class="on">Direto (Apify)</button>
+      <button type="button" id="tabProxy">Proxy (Worker)</button>
+    </div>
+
+    <div id="paneDirect">
+      <div class="field">
+        <label>Token da API (Apify)</label>
+        <input id="cfgToken" type="password" placeholder="apify_api_..." />
+        <small>Fica só no seu navegador (localStorage). Nunca é enviado pro GitHub. Crie em apify.com → Settings → API tokens.</small>
+      </div>
+      <div class="field">
+        <label>Actor (scraper de Goofish/Xianyu)</label>
+        <input id="cfgActor" placeholder="usuario/nome-do-actor" />
+        <small>Ex.: um dos actors de "Goofish Xianyu detail" do Apify Store. Use o formato usuario/actor.</small>
+      </div>
+      <div class="field">
+        <label>Template de input (JSON)</label>
+        <textarea id="cfgInput">{"startUrls":[{"url":"{{url}}"}]}</textarea>
+        <small>Use <code>{{url}}</code> e <code>{{id}}</code>. Ajuste conforme a página "Input" do seu actor (alguns usam "urls", "itemId", etc.).</small>
+      </div>
+    </div>
+
+    <div id="paneProxy" class="hidden">
+      <div class="field">
+        <label>URL do backend (Cloudflare Worker / função serverless)</label>
+        <input id="cfgBase" placeholder="https://seu-worker.workers.dev" />
+        <small>O site vai chamar <code>{essa URL}?id=ID</code>. O token fica guardado no Worker, não aqui. Código do Worker no README.</small>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn" id="cfgCancel" type="button">Cancelar</button>
+      <button class="btn primary" id="cfgSave" type="button">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var LS = "xyviewer.cfg";
+  function loadCfg(){
+    try{ return JSON.parse(localStorage.getItem(LS)) || {}; }catch(e){ return {}; }
+  }
+  function saveCfg(c){ try{ localStorage.setItem(LS, JSON.stringify(c)); }catch(e){} }
+  var cfg = loadCfg();
+  if(!cfg.mode) cfg.mode = "direct";
+  if(!cfg.input) cfg.input = '{"startUrls":[{"url":"{{url}}"}]}';
+
+  // ---------- helpers ----------
+  function parseId(s){
+    if(!s) return null;
+    s = String(s).trim();
+    var m = s.match(/[?&]id=(\d+)/);
+    if(m) return m[1];
+    m = s.match(/(\d{8,})/);           // long numeric id anywhere
+    return m ? m[1] : null;
+  }
+  function goofishUrl(id){ return "https://www.goofish.com/item?id=" + id; }
+
+  function isImgUrl(v){
+    if(typeof v !== "string") return false;
+    if(/^\/\/|^https?:\/\//.test(v) === false) return false;
+    return /\.(jpe?g|png|webp)(\?|$)/i.test(v) || /alicdn\.com/i.test(v);
+  }
+  function normUrl(v){ return v.indexOf("//")===0 ? "https:"+v : v; }
+
+  function deepImages(obj){
+    var out = [], seen = {};
+    (function walk(o){
+      if(o==null) return;
+      if(typeof o === "string"){ if(isImgUrl(o)){ var u=normUrl(o.split("_.webp")[0]); if(!seen[u]){seen[u]=1;out.push(normUrl(o));} } return; }
+      if(Array.isArray(o)){ o.forEach(walk); return; }
+      if(typeof o === "object"){ for(var k in o) walk(o[k]); }
+    })(obj);
+    return out.slice(0,40);
+  }
+  function deepFind(obj, re){
+    var found;
+    (function walk(o){
+      if(found!==undefined || o==null || typeof o!=="object") return;
+      for(var k in o){
+        var v=o[k];
+        if((typeof v==="string"||typeof v==="number") && re.test(k) && String(v).trim()!==""){ found=v; return; }
+      }
+      for(var k2 in o){ if(found!==undefined) return; var v2=o[k2]; if(v2&&typeof v2==="object") walk(v2); }
+    })(obj);
+    return found;
+  }
+
+  // ---------- fetch engines ----------
+  function callDirect(id){
+    if(!cfg.token || !cfg.actor) throw new Error("Configure o token e o actor do Apify no ⚙️.");
+    var actorPath = cfg.actor.trim().replace("/", "~");
+    var url = "https://api.apify.com/v2/acts/" + actorPath + "/run-sync-get-dataset-items?token=" + encodeURIComponent(cfg.token);
+    var tmpl = (cfg.input||"").replace(/\{\{url\}\}/g, goofishUrl(id)).replace(/\{\{id\}\}/g, id);
+    var body;
+    try{ body = JSON.parse(tmpl); }catch(e){ throw new Error("Template de input não é JSON válido."); }
+    return fetch(url, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+      .then(function(r){ if(!r.ok) return r.text().then(function(t){throw new Error("Apify "+r.status+": "+t.slice(0,300));}); return r.json(); });
+  }
+  function callProxy(id){
+    if(!cfg.base) throw new Error("Configure a URL do backend no ⚙️.");
+    var url = cfg.base.replace(/\/$/,"") + "?id=" + id;
+    return fetch(url).then(function(r){ if(!r.ok) return r.text().then(function(t){throw new Error("Backend "+r.status+": "+t.slice(0,300));}); return r.json(); });
+  }
+
+  // ---------- render ----------
+  var $status = document.getElementById("status");
+  var $result = document.getElementById("result");
+  function setStatus(html, isErr){
+    $status.className = "status" + (isErr?" err":"");
+    $status.classList.remove("hidden");
+    $status.innerHTML = html;
+  }
+  function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
+
+  function render(id, data){
+    // data may be: array of items, {item:{...}}, or a single object
+    var record = Array.isArray(data) ? (data[0]||{}) : (data.item || data.data || data);
+    if(!record || (typeof record==="object" && Object.keys(record).length===0)){
+      setStatus("Motor respondeu vazio — provavelmente o bloqueio do Goofish estava ativo nesse horário, ou o anúncio saiu do ar. Tente de novo mais tarde (ou na janela da madrugada chinesa).", true);
+      return;
+    }
+    var images = deepImages(record);
+    var title = deepFind(record, /title|subject/i) || "(sem título)";
+    var priceRaw = deepFind(record, /^price$|soldprice|realprice|priceinfo/i) || deepFind(record, /price/i) || "";
+    var nick = deepFind(record, /nick|sellername|usernick/i) || deepFind(record, /seller/i) || "Vendedor";
+    var rating = deepFind(record, /sesame|zhima|credit|rating|level|score/i);
+    var loc = deepFind(record, /area|city|location|province/i);
+    var want = deepFind(record, /want|wish/i);
+    var view = deepFind(record, /view|browse|^pv$/i);
+    var collect = deepFind(record, /collect|favor|fav|save/i);
+    var desc = deepFind(record, /^desc$|description|content|detail$/i) || "";
+
+    var priceText = priceRaw==="" ? "—" : ("¥" + String(priceRaw).replace(/^[¥￥]/,""));
+
+    var thumbs = images.map(function(u,i){ return '<img src="'+esc(u)+'" data-i="'+i+'" class="'+(i===0?"active":"")+'" referrerpolicy="no-referrer" />'; }).join("");
+    var stats = [];
+    if(want!=null) stats.push("❤ "+esc(want)+" querem");
+    if(view!=null) stats.push("👁 "+esc(view)+" views");
+    if(collect!=null) stats.push("★ "+esc(collect)+" salvos");
+
+    $result.innerHTML =
+      '<div class="detail">'+
+        '<div class="card gallery">'+
+          (images.length ? '<img class="hero" id="hero" src="'+esc(images[0])+'" referrerpolicy="no-referrer" />' : '<div class="hero" style="display:flex;align-items:center;justify-content:center;color:#888">sem imagem</div>')+
+          (thumbs ? '<div class="thumbs" id="thumbs">'+thumbs+'</div>' : '')+
+        '</div>'+
+        '<div class="info">'+
+          '<div class="price"><span class="cur">¥</span><span class="val">'+esc(priceText.replace(/^¥/,""))+'</span></div>'+
+          '<div class="title">'+esc(title)+'</div>'+
+          (stats.length?'<div class="stats">'+stats.join("")+'</div>':'')+
+          '<div class="seller">'+
+            '<div class="ava">🧑</div>'+
+            '<div><div class="who">'+esc(nick)+(rating!=null?'<span class="badge">'+esc(rating)+'</span>':'')+'</div>'+
+            '<div class="sub">'+(loc!=null?esc(loc):'localização não informada')+'</div></div>'+
+          '</div>'+
+          '<div class="row">'+
+            '<a class="btn primary" id="copyLink" href="'+esc(goofishUrl(id))+'" target="_blank" rel="noreferrer">🔗 Copiar link</a>'+
+            '<a class="btn" href="'+esc(goofishUrl(id))+'" target="_blank" rel="noreferrer">Abrir no Goofish</a>'+
+          '</div>'+
+          (desc?'<div class="desc">'+esc(desc)+'</div>':'')+
+        '</div>'+
+      '</div>'+
+      '<details class="raw"><summary>Ver JSON bruto do motor</summary><pre>'+esc(JSON.stringify(data,null,2))+'</pre></details>';
+
+    // thumb switching
+    var hero = document.getElementById("hero");
+    var thumbsEl = document.getElementById("thumbs");
+    if(thumbsEl){
+      thumbsEl.addEventListener("click", function(e){
+        var t = e.target.closest("img"); if(!t) return;
+        hero.src = t.src;
+        [].forEach.call(thumbsEl.querySelectorAll("img"), function(im){ im.classList.remove("active"); });
+        t.classList.add("active");
+      });
+    }
+    // copy link
+    var cp = document.getElementById("copyLink");
+    cp.addEventListener("click", function(e){
+      e.preventDefault();
+      navigator.clipboard.writeText(goofishUrl(id)).then(function(){
+        var old = cp.textContent; cp.textContent = "✓ Copiado!";
+        setTimeout(function(){ cp.textContent = old; }, 1500);
+      }).catch(function(){ window.open(goofishUrl(id), "_blank"); });
+    });
+    $status.classList.add("hidden");
+  }
+
+  // ---------- search flow ----------
+  function doSearch(raw){
+    var id = parseId(raw);
+    if(!id){ setStatus("Não encontrei um ID no que você colou. Cole o link do anúncio ou só o número do id.", true); return; }
+    $result.innerHTML = "";
+    setStatus('<span class="spinner"></span>Buscando o anúncio ' + esc(id) + ' pelo motor ('+(cfg.mode==="proxy"?"proxy":"direto")+')…');
+    var p;
+    try{ p = cfg.mode==="proxy" ? callProxy(id) : callDirect(id); }
+    catch(err){ setStatus(esc(err.message), true); return; }
+    p.then(function(data){ render(id, data); })
+     .catch(function(err){ setStatus("Falhou: "+esc(err.message), true); });
+  }
+
+  document.getElementById("form").addEventListener("submit", function(e){
+    e.preventDefault();
+    doSearch(document.getElementById("q").value);
+  });
+
+  // deep link ?id= / ?q=
+  (function(){
+    var u = new URL(location.href);
+    var q = u.searchParams.get("id") || u.searchParams.get("q");
+    if(q){ document.getElementById("q").value = q; doSearch(q); }
+  })();
+
+  // ---------- config modal ----------
+  var mask = document.getElementById("mask");
+  var tabD = document.getElementById("tabDirect"), tabP = document.getElementById("tabProxy");
+  var paneD = document.getElementById("paneDirect"), paneP = document.getElementById("paneProxy");
+  function openCfg(){
+    document.getElementById("cfgToken").value = cfg.token||"";
+    document.getElementById("cfgActor").value = cfg.actor||"";
+    document.getElementById("cfgInput").value = cfg.input||'{"startUrls":[{"url":"{{url}}"}]}';
+    document.getElementById("cfgBase").value = cfg.base||"";
+    setTab(cfg.mode||"direct");
+    mask.classList.add("open");
+  }
+  function setTab(mode){
+    var d = mode!=="proxy";
+    tabD.classList.toggle("on", d); tabP.classList.toggle("on", !d);
+    paneD.classList.toggle("hidden", !d); paneP.classList.toggle("hidden", d);
+    cfg._tab = mode;
+  }
+  document.getElementById("gear").addEventListener("click", openCfg);
+  tabD.addEventListener("click", function(){ setTab("direct"); });
+  tabP.addEventListener("click", function(){ setTab("proxy"); });
+  document.getElementById("cfgCancel").addEventListener("click", function(){ mask.classList.remove("open"); });
+  mask.addEventListener("click", function(e){ if(e.target===mask) mask.classList.remove("open"); });
+  document.getElementById("cfgSave").addEventListener("click", function(){
+    cfg.mode  = cfg._tab==="proxy" ? "proxy" : "direct";
+    cfg.token = document.getElementById("cfgToken").value.trim();
+    cfg.actor = document.getElementById("cfgActor").value.trim();
+    cfg.input = document.getElementById("cfgInput").value.trim() || '{"startUrls":[{"url":"{{url}}"}]}';
+    cfg.base  = document.getElementById("cfgBase").value.trim();
+    saveCfg(cfg);
+    mask.classList.remove("open");
+    setStatus("Configuração salva. Pode buscar.", false);
+    setTimeout(function(){ if($result.innerHTML==="") $status.classList.add("hidden"); }, 2000);
+  });
+
+  // first-run nudge
+  if(!cfg.token && !cfg.base){
+    setStatus('Antes de buscar, configure o motor no ⚙️ (canto superior direito).', false);
+  }
+})();
+</script>
+</body>
+</html>
