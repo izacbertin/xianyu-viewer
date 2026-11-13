@@ -1,0 +1,14 @@
+name = "xianyu-viewer-api"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+# Workers AI (tradução chinês → português)
+[ai]
+binding = "AI"
+
+[vars]
+# Sites que podem usar este backend (separados por vírgula).
+ALLOW_ORIGIN = "https://izacbertin.github.io"
+
+# O token do Apify NÃO fica aqui. Defina como secret:
+#   npx wrangler secret put APIFY_TOKEN

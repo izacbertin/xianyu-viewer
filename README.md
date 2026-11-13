@@ -1,55 +1,52 @@
-# 闲鱼 Viewer — ver anúncio do Goofish/Xianyu por link
+# 闲鱼 Viewer — anúncios do Xianyu em português
 
-Um site com a cara do Xianyu, hospedável no **GitHub Pages**, onde você cola o **link (ou o ID)** de um anúncio e vê **fotos, preço e dados do vendedor** — e copia o link. Sem precisar comprar e sem logar no Xianyu.
+Cole o link de um anúncio (ou de um vendedor) do Goofish/Xianyu e veja, em português: fotos, preço, descrição, reputação do vendedor, avaliações de compradores e fotos das avaliações.
 
-## Por que precisa de um "motor"
+## Como funciona
 
-O Goofish bloqueia acesso de fora da China e de servidores de terceiros (controle de risco, que varia por horário). Um site **estático** (GitHub Pages) **não** consegue puxar o Goofish sozinho — faltam CORS, IP chinês e a assinatura deles.
+```
+Navegador ──> index.html (GitHub Pages)
+                  │  GET /api/item?id=…   /api/seller?id=…
+                  ▼
+            Cloudflare Worker (worker/)
+              • guarda o token do Apify (secret)
+              • chama os scrapers com proxy na China
+              • traduz zh → pt com Workers AI
+              • cache: 6 h (anúncio) / 12 h (vendedor)
+                  ▼
+               Apify
+```
 
-Então o site delega a busca a um **motor com proxy residencial chinês**. Aqui usamos uma **API de scraping** (ex.: um actor de "Goofish/Xianyu detail" no [Apify Store](https://apify.com/store?search=goofish)). O motor é a única parte paga/externa; o resto é grátis.
+O visitante nunca vê nem informa chave nenhuma: o token fica só no Worker.
 
-> As **imagens** vêm do CDN da Alibaba (`*.alicdn.com`), que **não é geobloqueado** — então as fotos abrem normal do Brasil.
+| Parte | Onde | Arquivo |
+|---|---|---|
+| Site | GitHub Pages | `index.html` |
+| Backend | Cloudflare Workers | `worker/src/index.js`, `worker/wrangler.toml` |
 
-## Arquivos
+Scrapers usados (Apify): `dami_studio/goofish-scraper` (anúncio) e `zen-studio/goofish-xianyu-seller-scraper` (perfil, avaliações, outros anúncios).
 
-| Arquivo | O que é |
-|---|---|
-| `index.html` | O site inteiro (front-end). Funciona sozinho em GitHub Pages. |
-| `worker.js` | Backend opcional (Cloudflare Worker) para o **modo proxy**, que esconde o token. |
+## Publicar o backend
 
-## Modo 1 — Direto (mais simples, sem backend)
+```bash
+cd worker
+npm install
+npx wrangler login
+npx wrangler secret put APIFY_TOKEN   # cole o token do Apify quando pedir
+npx wrangler deploy
+```
 
-O próprio navegador chama a API, com o token guardado **só no seu navegador** (localStorage).
+Depois, coloque a URL do Worker em `API_BASE`, no começo do script do `index.html`.
 
-1. Crie o repositório no GitHub e suba o `index.html`.
-2. **Settings → Pages →** Branch `main` / `/root` → salvar. Seu site fica em `https://SEU-USUARIO.github.io/SEU-REPO/`.
-3. Crie uma conta no [Apify](https://apify.com) (dá pra entrar com GitHub ou Google) e copie o **token** em [console.apify.com → Settings → API & Integrations](https://console.apify.com/settings/integrations).
-4. No site, clique no **⚙️** → aba **Direto (Apify)** → cole o token → **Salvar**. O actor (`dami_studio/goofish-scraper`, ~US$ 0,004 por anúncio) e o input já vêm preenchidos.
-5. Cole o link do anúncio e clique **Ver**.
+`ALLOW_ORIGIN` (em `wrangler.toml`) lista os sites que podem usar o backend. Ao trocar de domínio, atualize ali.
 
-> O plano grátis do Apify dá US$ 5 de crédito por mês, o que cobre mais de mil anúncios.
+## Custos
 
-> ⚠️ Nesse modo o token fica no navegador de quem usa o site. Para uso **pessoal** tudo bem. Se for compartilhar o site publicamente, use o Modo 2.
+- **Apify**: ~US$ 0,004 por anúncio; perfil do vendedor com 30 avaliações e 12 anúncios ~US$ 0,06. O plano grátis dá US$ 5/mês.
+- **Cloudflare**: Workers e Workers AI têm cota grátis diária. O cache evita pagar duas vezes pela mesma consulta.
 
-## Modo 2 — Proxy (token escondido no Cloudflare Worker, grátis)
+## Limites
 
-1. Suba o `index.html` no GitHub Pages (passos acima).
-2. Crie um Worker em [dash.cloudflare.com](https://dash.cloudflare.com) → **Workers & Pages → Create → Worker**, cole o conteúdo de `worker.js` e faça deploy.
-3. No Worker, **Settings → Variables and Secrets**, defina:
-   - `APIFY_TOKEN` (Secret) = seu token do Apify
-   - `APIFY_ACTOR` = `usuario/actor`
-   - `APIFY_INPUT` (opcional) = template, ex.: `{"startUrls":[{"url":"{{url}}"}]}`
-   - `ALLOW_ORIGIN` (opcional) = a URL do seu GitHub Pages
-4. No site, **⚙️ → aba Proxy** → cole a URL do Worker (`https://...workers.dev`).
-5. Cole o link e **Ver**.
-
-## Adaptando ao actor escolhido
-
-Cada actor do Apify tem um **input** e um **output** próprios. O site é tolerante: ele vasculha o JSON e acha imagens, preço, título e vendedor sozinho, e sempre mostra o **JSON bruto** (no fim do resultado) pra você conferir.
-
-- Se não vier nada: abra a página *Input* do actor e ajuste o **template** (alguns usam `urls`, `itemId`, `keyword`, etc.).
-- Se faltar um campo: veja o JSON bruto pra descobrir o nome real do campo naquele actor.
-
-## Limite honesto
-
-Nenhum truque de cliente vence o bloqueio do Goofish — quem vence é o **proxy chinês do motor**. Se até o motor vier vazio num horário de bloqueio forte, tente mais tarde (a janela da **madrugada chinesa** costuma liberar). Trocar de actor/provedor com proxy residencial melhor também ajuda.
+- O bloqueio do Goofish varia por horário. Quando o scraper não consegue, o site avisa e pede pra tentar depois.
+- A tradução é automática; o botão **中文 original** mostra o texto original ao lado.
+- A primeira consulta de cada link leva de 20 a 60 segundos; as seguintes abrem na hora (cache).
