@@ -4,8 +4,10 @@
  * Guarda o token do Apify (secret APIFY_TOKEN), chama os scrapers, traduz
  * os textos para português com o Workers AI e guarda o resultado em cache.
  *
+ *   GET /api/search?q=<busca>&sort=&min=&max=&more=1
  *   GET /api/item?id=<id do anúncio ou link>
  *   GET /api/seller?id=<id do vendedor>
+ *   GET /api/seller-photos?id=<id do vendedor>   (avaliações com foto, sob demanda)
  *   GET /api/health
  */
 
@@ -16,16 +18,21 @@ const PHOTO_REVIEW_ACTOR = "unitbytes/goofish-scraper";
 const LLM_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 const FALLBACK_MODEL = "@cf/meta/m2m100-1.2b";
 
-const CACHE_VERSION = "v5";
-const ITEM_CACHE_SECONDS = 6 * 3600;
-const SELLER_CACHE_SECONDS = 12 * 3600;
-const SEARCH_CACHE_SECONDS = 3600;
+// Every answer is kept in Workers KV (CACHE binding), so the same query is paid to Apify only once per period.
+const CACHE_VERSION = "v6";
+const CACHE_SECONDS = {
+  item: 24 * 3600,
+  seller: 3 * 24 * 3600,
+  "seller-photos": 3 * 24 * 3600,
+  search: 6 * 3600,
+};
 const SEARCH_ACTOR = "unitbytes/goofish-scraper";
-const SEARCH_ITEMS = 30;
+const SEARCH_ITEMS = 20;         // "ver mais" asks for SEARCH_ITEMS_MORE
+const SEARCH_ITEMS_MORE = 40;
 const SEARCH_SORTS = { relevance: "relevance", newest: "newest", price_asc: "price_asc", price_desc: "price_desc" };
-const FETCH_REVIEWS = 50;        // asked from the scraper (many are empty placeholders)
+const FETCH_REVIEWS = 25;        // asked from the scraper (many are empty placeholders)
 const FETCH_PHOTO_REVIEWS = 20;
-const MAX_REVIEWS = 40;          // shown after filtering
+const MAX_REVIEWS = 25;          // shown after filtering
 const MAX_LISTINGS = 12;
 
 const CONDITION_PT = {
@@ -79,7 +86,7 @@ export default {
       return json(out);
     }
 
-    const route = { "/api/item": "item", "/api/seller": "seller", "/api/search": "search" }[url.pathname];
+    const route = { "/api/item": "item", "/api/seller": "seller", "/api/seller-photos": "seller-photos", "/api/search": "search" }[url.pathname];
     if (!route) return json({ ok: false, error: "not_found" }, 404);
     if (!env.APIFY_TOKEN) return json({ ok: false, error: "server_not_configured" }, 500);
 
@@ -87,38 +94,34 @@ export default {
     if (route === "search") {
       search = parseSearch(url.searchParams);
       if (!search) return json({ ok: false, error: "bad_query" }, 400);
-      id = [encodeURIComponent(search.q.toLowerCase()), search.sort, search.min ?? "", search.max ?? ""].join("/");
+      id = [search.q.toLowerCase(), search.sort, search.min ?? "", search.max ?? "", search.limit].join("|");
     } else {
-      id = extractId(url.searchParams.get("id") || "", route);
+      id = extractId(url.searchParams.get("id") || "", route === "seller-photos" ? "seller" : route);
       if (!id) return json({ ok: false, error: "bad_id" }, 400);
     }
 
     // Cache by route + normalized input only, so different query strings share one entry.
-    const cacheKey = new Request(`https://cache.internal/${CACHE_VERSION}/${route}/${id}`);
-    const cache = caches.default;
-    const hit = await cache.match(cacheKey);
+    const cacheKey = await cacheKeyFor(route, id);
+    const hit = await cacheGet(env, cacheKey);
     if (hit) {
-      const body = await hit.text();
-      return new Response(body, { headers: { "Content-Type": "application/json; charset=utf-8", ...cors, "X-Cache": "HIT" } });
+      return new Response(hit, { headers: { "Content-Type": "application/json; charset=utf-8", ...cors, "X-Cache": "HIT" } });
     }
 
     let result;
     try {
       result = route === "item" ? await getItem(env, id)
         : route === "seller" ? await getSeller(env, id)
+        : route === "seller-photos" ? await getSellerPhotos(env, id)
         : await getSearch(env, search, url.searchParams.get("debug") === "1");
     } catch (err) {
       const e = err instanceof ApifyError ? err : null;
       return json({ ok: false, error: e ? e.code : "internal_error", detail: String(err && err.message || err).slice(0, 300) }, e ? e.status : 500);
     }
 
-    const ttl = route === "item" ? ITEM_CACHE_SECONDS : route === "seller" ? SELLER_CACHE_SECONDS : SEARCH_CACHE_SECONDS;
     const body = JSON.stringify(result);
     // An empty search is not cached: it may be the Goofish block, which comes and goes.
     if (result.ok && !(route === "search" && (!result.items.length || result.debug))) {
-      ctx.waitUntil(cache.put(cacheKey, new Response(body, {
-        headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": `public, max-age=${ttl}` },
-      })));
+      ctx.waitUntil(cachePut(env, cacheKey, body, CACHE_SECONDS[route]));
     }
     return new Response(body, {
       status: result.ok ? 200 : 404,
@@ -126,6 +129,35 @@ export default {
     });
   },
 };
+
+// ---------------------------------------------------------------- cache
+
+// KV keys are limited to 512 bytes and a search can be long Chinese text: hash it.
+async function cacheKeyFor(route, id) {
+  const bytes = new TextEncoder().encode(`${route}|${id}`);
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  const hex = [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${CACHE_VERSION}:${route}:${hex}`;
+}
+
+async function cacheGet(env, key) {
+  try {
+    if (env.CACHE) return await env.CACHE.get(key);
+    const r = await caches.default.match(new Request(`https://cache.internal/${key}`));
+    return r ? await r.text() : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function cachePut(env, key, body, ttl) {
+  try {
+    if (env.CACHE) { await env.CACHE.put(key, body, { expirationTtl: ttl }); return; }
+    await caches.default.put(new Request(`https://cache.internal/${key}`), new Response(body, {
+      headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": `public, max-age=${ttl}` },
+    }));
+  } catch (e) { /* a failed cache write only costs a future Apify call */ }
+}
 
 // ---------------------------------------------------------------- input
 
@@ -213,7 +245,13 @@ function parseSearch(params) {
   const q = (params.get("q") || "").replace(/\s+/g, " ").trim().slice(0, 80);
   if (q.length < 2) return null;
   const num = (v) => { const n = Math.floor(Number(v)); return v != null && v !== "" && Number.isFinite(n) && n >= 0 ? n : null; };
-  return { q, sort: SEARCH_SORTS[params.get("sort")] || "relevance", min: num(params.get("min")), max: num(params.get("max")) };
+  return {
+    q,
+    sort: SEARCH_SORTS[params.get("sort")] || "relevance",
+    min: num(params.get("min")),
+    max: num(params.get("max")),
+    limit: params.get("more") === "1" ? SEARCH_ITEMS_MORE : SEARCH_ITEMS,
+  };
 }
 
 /** Turns what the visitor typed (usually Portuguese) into the Chinese keywords a Xianyu buyer would type. */
@@ -288,7 +326,7 @@ async function getSearch(env, search, debug) {
   const input = {
     mode: "search",
     keyword: zh,
-    maxItems: SEARCH_ITEMS,
+    maxItems: search.limit,
     sortBy: search.sort,
     detailLevel: "summary",
     outputFormat: "tabular",
@@ -302,7 +340,7 @@ async function getSearch(env, search, debug) {
   const seen = new Set();
   const items = rows.filter((r) => r && typeof r === "object").map(normalizeSearchItem)
     .filter((it) => it.id && it.title && !seen.has(it.id) && seen.add(it.id))
-    .slice(0, SEARCH_ITEMS);
+    .slice(0, search.limit);
 
   const tr = await translateMany(env, [...items.map((it) => it.title), ...items.map((it) => it.area), ...items.map((it) => it.condition)]);
   const t2 = Date.now();
@@ -310,7 +348,9 @@ async function getSearch(env, search, debug) {
   const out = {
     ok: true,
     fetchedAt: new Date().toISOString(),
-    query: { q: search.q, zh, sort: search.sort, min: search.min, max: search.max },
+    query: { q: search.q, zh, sort: search.sort, min: search.min, max: search.max, limit: search.limit },
+    // a full page suggests Goofish has more
+    hasMore: search.limit < SEARCH_ITEMS_MORE && items.length >= search.limit,
     items: items.map((it, k) => ({ ...it, pt: { title: tr[k], area: tr[n + k], condition: tr[2 * n + k] } })),
   };
   if (!n) out.note = rows.map((r) => r && (r.note || r.message || r.error || r.reason || r.rowStatus)).find(Boolean) || null;
@@ -354,37 +394,58 @@ function normalizePhotoReview(r) {
 }
 
 async function getPhotoReviews(env, id) {
-  try {
-    const rows = await runActor(env, PHOTO_REVIEW_ACTOR, {
-      mode: "seller",
-      sellerInputs: [`https://www.goofish.com/personal?userId=${id}`],
-      includeListings: false,
-      includeReviews: true,
-      maxReviews: FETCH_PHOTO_REVIEWS,
-      reviewFilter: "with_photos",
-      outputFormat: "nested",
-    });
-    const nested = rows.flatMap((r) => (r && Array.isArray(r.reviews) ? r.reviews : []));
-    // "tabular" style rows, in case the actor ignores outputFormat
-    const flat = rows.filter((r) => r && (r.feedbackText || r.reviewImages) && !Array.isArray(r.reviews));
-    return [...nested, ...flat].map(normalizePhotoReview).filter((r) => r.imageUrls.length);
-  } catch (e) {
-    return []; // best effort: the page still works without photo reviews
-  }
+  const rows = await runActor(env, PHOTO_REVIEW_ACTOR, {
+    mode: "seller",
+    sellerInputs: [`https://www.goofish.com/personal?userId=${id}`],
+    includeListings: false,
+    includeReviews: true,
+    maxReviews: FETCH_PHOTO_REVIEWS,
+    reviewFilter: "with_photos",
+    outputFormat: "nested",
+  });
+  const nested = rows.flatMap((r) => (r && Array.isArray(r.reviews) ? r.reviews : []));
+  // "tabular" style rows, in case the actor ignores outputFormat
+  const flat = rows.filter((r) => r && (r.feedbackText || r.reviewImages) && !Array.isArray(r.reviews));
+  return [...nested, ...flat].map(normalizePhotoReview).filter((r) => r.imageUrls.length);
+}
+
+/** Adds r.pt (text, bought item, province, tags) to each review, in one translation pass. */
+async function withReviewTranslations(env, reviews) {
+  const n = reviews.length;
+  const tagList = [...new Set(reviews.flatMap((r) => (Array.isArray(r.tags) ? r.tags : [])))];
+  const tr = await translateMany(env, [
+    ...reviews.map((r) => r.text),
+    ...reviews.map((r) => r.tradeInfo && r.tradeInfo.itemTitle),
+    ...reviews.map((r) => r.reviewerIpProvince),
+    ...tagList,
+  ]);
+  const tagPt = Object.fromEntries(tagList.map((t, i) => [t, tr[3 * n + i] || t]));
+  return reviews.map((r, k) => ({
+    ...r,
+    pt: {
+      text: tr[k],
+      itemTitle: tr[n + k],
+      province: tr[2 * n + k],
+      tags: (r.tags || []).map((t) => tagPt[t] || t),
+    },
+  }));
+}
+
+/** Second step of the seller page: reviews with photos, only when the visitor asks for them. */
+async function getSellerPhotos(env, id) {
+  const reviews = (await getPhotoReviews(env, id)).slice(0, FETCH_PHOTO_REVIEWS);
+  return { ok: true, fetchedAt: new Date().toISOString(), reviews: await withReviewTranslations(env, reviews) };
 }
 
 async function getSeller(env, id) {
-  const [rows, photoReviews] = await Promise.all([
-    runActor(env, SELLER_ACTOR, {
-      sellerInputs: [`https://www.goofish.com/personal?userId=${id}`],
-      includeListings: true,
-      includeReviews: true,
-      deepListings: false,
-      maxListings: MAX_LISTINGS,
-      maxReviews: FETCH_REVIEWS,
-    }),
-    getPhotoReviews(env, id),
-  ]);
+  const rows = await runActor(env, SELLER_ACTOR, {
+    sellerInputs: [`https://www.goofish.com/personal?userId=${id}`],
+    includeListings: true,
+    includeReviews: true,
+    deepListings: false,
+    maxListings: MAX_LISTINGS,
+    maxReviews: FETCH_REVIEWS,
+  });
   const seller = rows.find((r) => r && r.rowType === "seller") || rows.find((r) => r && r.displayName);
   if (!seller || seller.rowStatus === "error") {
     return { ok: false, error: "not_found_or_blocked", detail: seller && seller.detailError || null };
@@ -392,39 +453,19 @@ async function getSeller(env, id) {
 
   const fetched = Array.isArray(seller.reviews) ? seller.reviews : [];
   const real = fetched.filter(isRealReview);
-  // Photo reviews first, then the rest, without repeating the same review.
-  const seen = new Set();
-  const reviews = [...photoReviews, ...real].filter((r) => {
-    const k = r.rateId != null ? String(r.rateId) : null;
-    if (k && seen.has(k)) return false;
-    if (k) seen.add(k);
-    return true;
-  }).slice(0, MAX_REVIEWS);
-
+  const reviews = real.slice(0, MAX_REVIEWS);
   const listings = (Array.isArray(seller.listings) ? seller.listings
     : rows.filter((r) => r && r.rowType === "listing")).slice(0, MAX_LISTINGS);
 
-  // One batch for every Chinese string on the page.
   const head = [seller.bio, seller.creditBadge && seller.creditBadge.text, seller.ipProvince];
-  const texts = [
-    ...head,
-    ...reviews.map((r) => r.text),
-    ...reviews.map((r) => r.tradeInfo && r.tradeInfo.itemTitle),
-    ...reviews.map((r) => r.reviewerIpProvince),
-    ...listings.map((l) => l.title),
-  ];
-  const tagList = [...new Set(reviews.flatMap((r) => (Array.isArray(r.tags) ? r.tags : [])))];
-  const tr = await translateMany(env, [...texts, ...tagList]);
-  const tagPt = Object.fromEntries(tagList.map((t, i) => [t, tr[texts.length + i] || t]));
-
-  let i = head.length;
-  const reviewText = reviews.map(() => tr[i++]);
-  const reviewItem = reviews.map(() => tr[i++]);
-  const reviewProv = reviews.map(() => tr[i++]);
-  const listingTitle = listings.map(() => tr[i++]);
+  const [tr, translatedReviews] = await Promise.all([
+    translateMany(env, [...head, ...listings.map((l) => l.title)]),
+    withReviewTranslations(env, reviews),
+  ]);
 
   // Keep the payload small: drop the nested arrays we re-emit below.
   const { reviews: _r, listings: _l, ...profile } = seller;
+  const photoTab = (seller.reviewTabs || []).find((t) => t.type === "with_images");
 
   return {
     ok: true,
@@ -435,17 +476,11 @@ async function getSeller(env, id) {
       fetched: fetched.length,
       withoutComment: fetched.length - real.length,
       withPhotos: reviews.filter((r) => r.imageUrls && r.imageUrls.length).length,
+      // how many photo reviews the seller has in total (loaded on demand)
+      photoTotal: photoTab && photoTab.count != null ? photoTab.count : null,
     },
-    reviews: reviews.map((r, k) => ({
-      ...r,
-      pt: {
-        text: reviewText[k],
-        itemTitle: reviewItem[k],
-        province: reviewProv[k],
-        tags: (r.tags || []).map((t) => tagPt[t] || t),
-      },
-    })),
-    listings: listings.map((l, k) => ({ ...l, pt: { title: listingTitle[k] } })),
+    reviews: translatedReviews,
+    listings: listings.map((l, k) => ({ ...l, pt: { title: tr[head.length + k] } })),
   };
 }
 

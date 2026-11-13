@@ -206,7 +206,7 @@
     return null;
   }
   function searchPath(q){
-    return "q="+encodeURIComponent(q.q)+(q.sort&&q.sort!=="relevance"?"&sort="+q.sort:"")+(q.min!==""&&q.min!=null?"&min="+q.min:"")+(q.max!==""&&q.max!=null?"&max="+q.max:"");
+    return "q="+encodeURIComponent(q.q)+(q.sort&&q.sort!=="relevance"?"&sort="+q.sort:"")+(q.min!==""&&q.min!=null?"&min="+q.min:"")+(q.max!==""&&q.max!=null?"&max="+q.max:"")+(q.more?"&more=1":"");
   }
 
   function setStatus(html, isErr){
@@ -319,7 +319,7 @@
           '</a>'+
           '<div class="row">'+
             '<button class="btn primary" type="button" id="copyLink">🔗 Copiar link</button>'+
-            '<a class="btn" href="'+esc(goofishItem(id))+'" target="_blank" rel="noreferrer">Abrir no Goofish</a>'+
+            '<a class="btn" href="'+esc(goofishItem(id))+'#xv-stay" target="_blank" rel="noreferrer">Abrir no Goofish</a>'+
           '</div>'+
           specs+
           (it.description?'<div class="sectitle">Descrição do vendedor</div><div class="desc">'+tx(pt.description, it.description)+'</div>':'')+
@@ -357,16 +357,24 @@
     var cb = s.creditBadge;
     // Only the verification labels we can name in Portuguese; unknown ones are left out.
     var tags = (s.verificationTags||[]).filter(function(t){ return VERIF[t.label]; }).map(function(t){ return '<span class="badge ok">'+esc(VERIF[t.label])+'</span>'; }).join("");
-    var withPhotos = reviews.filter(function(r){ return r.imageUrls && r.imageUrls.length; }).length;
+    function countPhotos(){ return reviews.filter(function(r){ return r.imageUrls && r.imageUrls.length; }).length; }
+    var photosLoaded = false;
 
     var TAB_PT = { positive:"👍 Positivas", negative:"👎 Negativas", neutral:"😐 Neutras", middle:"😐 Neutras",
                    with_images:"📷 Com foto", from_buyers:"De compradores", from_sellers:"De vendedores" };
     var tabsSummary = (s.reviewTabs||[]).filter(function(t){ return TAB_PT[t.type] && t.count!=null; })
       .map(function(t){ return '<span class="pill">'+TAB_PT[t.type]+': '+fmtNum(t.count)+'</span>'; }).join("");
     var info = d.reviewInfo || {};
-    var note = reviews.length ? 'Mostrando as '+reviews.length+' avaliações mais recentes com comentário'+
-      (info.withPhotos ? ' (as '+info.withPhotos+' com foto primeiro)' : '')+
-      (info.withoutComment ? '. '+info.withoutComment+' compras recentes sem comentário foram omitidas' : '')+'.' : '';
+    function noteText(){
+      if(!reviews.length) return '';
+      return 'Mostrando '+reviews.length+' avaliações com comentário'+
+        (photosLoaded && countPhotos() ? ' (as '+countPhotos()+' com foto primeiro)' : ', das mais recentes')+
+        (info.withoutComment ? '. '+info.withoutComment+' compras recentes sem comentário foram omitidas' : '')+'.';
+    }
+    var note = noteText();
+    // Photo reviews cost an extra scraper run, so they load only when asked for.
+    var photoBtn = info.photoTotal === 0 ? '' :
+      '<button class="btn" type="button" id="loadPhotos">📷 Carregar avaliações com foto'+(info.photoTotal?' ('+fmtNum(info.photoTotal)+')':'')+'</button>';
 
     $result.innerHTML =
       '<div class="card sellerhead">'+
@@ -389,13 +397,15 @@
       '<div class="tabs">'+
         '<button class="tab on" type="button" data-tab="reviews">Avaliações ('+reviews.length+')</button>'+
         '<button class="tab" type="button" data-tab="listings">Outros anúncios ('+listings.length+')</button>'+
-        '<label class="filter" id="photoFilter"><input type="checkbox" id="onlyPhotos" /> Só com fotos ('+withPhotos+')</label>'+
+        '<span class="filter" id="photoFilter">'+photoBtn+
+          '<label class="hidden" id="onlyLabel" style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="onlyPhotos" /> Só com fotos (<span id="photoCount">0</span>)</label>'+
+        '</span>'+
       '</div>'+
       (note?'<div class="hint" id="reviewNote" style="margin:0 2px 12px">'+note+'</div>':'')+
       '<div id="pane-reviews"></div>'+
       '<div id="pane-listings" class="hidden"></div>'+
       '<div class="row"><button class="btn" type="button" id="copySeller">🔗 Copiar link do vendedor</button>'+
-      '<a class="btn" href="https://www.goofish.com/personal?userId='+esc(id)+'" target="_blank" rel="noreferrer">Abrir no Goofish</a></div>';
+      '<a class="btn" href="https://www.goofish.com/personal?userId='+esc(id)+'#xv-stay" target="_blank" rel="noreferrer">Abrir no Goofish</a></div>';
 
     function drawReviews(){
       var only = document.getElementById("onlyPhotos").checked;
@@ -405,6 +415,31 @@
     }
     document.getElementById("onlyPhotos").addEventListener("change", drawReviews);
     drawReviews();
+
+    var lp = document.getElementById("loadPhotos");
+    if(lp) lp.addEventListener("click", function(){
+      lp.disabled = true; lp.textContent = "Carregando avaliações com foto…";
+      api("/api/seller-photos?id="+id).then(function(p){
+        if(!lp.isConnected) return;                       // the visitor left this page
+        if(!p || !p.ok){ lp.disabled = false; lp.textContent = "📷 Não deu certo, tentar de novo"; return; }
+        if(!(p.reviews||[]).length){ lp.textContent = "Nenhuma avaliação com foto encontrada agora"; return; }
+        var seenIds = {}, merged = [];
+        p.reviews.concat(reviews).forEach(function(r){
+          var k = r.rateId!=null ? String(r.rateId) : null;
+          if(k && seenIds[k]) return;
+          if(k) seenIds[k] = 1;
+          merged.push(r);
+        });
+        reviews = merged; photosLoaded = true;
+        lp.classList.add("hidden");
+        document.getElementById("onlyLabel").classList.remove("hidden");
+        document.getElementById("photoCount").textContent = countPhotos();
+        document.getElementById("onlyPhotos").checked = true;
+        document.querySelector('[data-tab="reviews"]').textContent = "Avaliações ("+reviews.length+")";
+        var rn = document.getElementById("reviewNote"); if(rn) rn.textContent = noteText();
+        drawReviews();
+      });
+    });
 
     document.getElementById("pane-listings").innerHTML = listings.length ? '<div class="grid">'+listings.map(listingCard).join("")+'</div>' :
       '<div class="empty">Nenhum outro anúncio encontrado.</div>';
@@ -494,7 +529,8 @@
         '<button class="btn" type="submit">Aplicar</button>'+
       '</form>'+
       (items.length ? '<div class="grid">'+items.map(searchCard).join("")+'</div>' :
-        '<div class="empty">O Xianyu não devolveu resultados agora. Pode ser o termo, o filtro de preço, ou o bloqueio de buscas deles neste horário. Tente outro termo ou repita daqui a pouco.</div>');
+        '<div class="empty">O Xianyu não devolveu resultados agora. Pode ser o termo, o filtro de preço, ou o bloqueio de buscas deles neste horário. Tente outro termo ou repita daqui a pouco.</div>')+
+      (d.hasMore ? '<div class="row" style="justify-content:center;margin:20px 0"><button class="btn" type="button" id="moreBtn">Ver mais resultados</button></div>' : '');
 
     function apply(){
       load({type:"search", q:q.q, sort:document.getElementById("ssort").value,
@@ -502,6 +538,10 @@
     }
     document.getElementById("sform").addEventListener("submit", function(e){ e.preventDefault(); apply(); });
     document.getElementById("ssort").addEventListener("change", apply);
+    var more = document.getElementById("moreBtn");
+    if(more) more.addEventListener("click", function(){
+      load({type:"search", q:q.q, sort:q.sort, min:q.min, max:q.max, more:true}, true);
+    });
   }
 
   // "copy link" buttons on result cards
@@ -546,7 +586,7 @@
     if(p.get("id")) return parseQuery("?id="+p.get("id").replace(/\D/g,"")) ;
     if(p.get("q")){
       var q = parseQuery(p.get("q"));
-      if(q && q.type==="search"){ q.sort = p.get("sort")||"relevance"; q.min = p.get("min")||""; q.max = p.get("max")||""; }
+      if(q && q.type==="search"){ q.sort = p.get("sort")||"relevance"; q.min = p.get("min")||""; q.max = p.get("max")||""; q.more = p.get("more")==="1"; }
       return q;
     }
     return null;

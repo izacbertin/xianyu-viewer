@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "闲鱼 Viewer — atalho",
+  "description": "Abre anúncios, vendedores e buscas do Goofish/Xianyu no Viewer em português.",
+  "version": "1.0.0",
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "action": {
+    "default_title": "闲鱼 Viewer",
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" }
+  },
+  "background": { "service_worker": "background.js" },
+  "permissions": ["contextMenus", "storage", "activeTab"],
+  "content_scripts": [
+    {
+      "matches": ["*://*.goofish.com/*", "*://2.taobao.com/*"],
+      "js": ["lib.js", "content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

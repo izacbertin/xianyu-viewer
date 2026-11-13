@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<style>
+  body{margin:0;width:300px;font:14px/1.4 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:#1a1a1a;background:#fff}
+  header{background:#FFE400;padding:12px 14px;font-weight:800;font-size:16px}
+  header small{font-weight:600;opacity:.7;font-size:12px;margin-left:4px}
+  main{padding:12px 14px 14px}
+  form{display:flex;border:2px solid #1a1a1a;border-radius:20px;overflow:hidden}
+  input[type=text]{flex:1;border:0;outline:0;padding:8px 12px;font-size:14px;min-width:0}
+  form button{border:0;background:#1a1a1a;color:#FFE400;font-weight:700;padding:0 14px;cursor:pointer}
+  .here{display:none;margin-top:12px;width:100%;border:1px solid #FFD000;background:#FFE400;color:#1a1a1a;border-radius:10px;padding:9px;font-weight:700;cursor:pointer;font-size:14px}
+  label{display:flex;gap:8px;align-items:flex-start;margin-top:14px;font-size:13px;cursor:pointer}
+  label input{margin-top:2px}
+  .muted{color:#8a8a8a;font-size:12px}
+  a{color:#1a1a1a}
+  .foot{margin-top:12px;font-size:12px}
+</style>
+</head>
+<body>
+<header>🐟 闲鱼 Viewer<small>atalho</small></header>
+<main>
+  <form id="f">
+    <input id="q" type="text" placeholder="Buscar produto ou colar link" autocomplete="off" />
+    <button type="submit">Buscar</button>
+  </form>
+  <button class="here" id="here" type="button"></button>
+  <label><input type="checkbox" id="auto" />
+    <span>Abrir no Viewer automaticamente quando eu entrar num anúncio, vendedor ou busca do Goofish<br>
+    <span class="muted">Desligado: aparece um botão amarelo na página do Goofish.</span></span>
+  </label>
+  <div class="foot"><a href="#" id="open">Abrir o Viewer</a></div>
+</main>
+<script src="lib.js"></script>
+<script src="popup.js"></script>
+</body>
+</html>

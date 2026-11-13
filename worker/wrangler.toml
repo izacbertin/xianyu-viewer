@@ -6,6 +6,11 @@ compatibility_date = "2026-10-01"
 [ai]
 binding = "AI"
 
+# Cache permanente das respostas (evita pagar o Apify duas vezes pela mesma consulta)
+[[kv_namespaces]]
+binding = "CACHE"
+id = "7b339b2d3f27447885d5d64137b34d42"
+
 [vars]
 # Sites que podem usar este backend (separados por vírgula).
 ALLOW_ORIGIN = "https://izacbertin.github.io"
