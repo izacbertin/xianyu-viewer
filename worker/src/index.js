@@ -16,9 +16,13 @@ const PHOTO_REVIEW_ACTOR = "unitbytes/goofish-scraper";
 const LLM_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 const FALLBACK_MODEL = "@cf/meta/m2m100-1.2b";
 
-const CACHE_VERSION = "v4";
+const CACHE_VERSION = "v5";
 const ITEM_CACHE_SECONDS = 6 * 3600;
 const SELLER_CACHE_SECONDS = 12 * 3600;
+const SEARCH_CACHE_SECONDS = 3600;
+const SEARCH_ACTOR = "unitbytes/goofish-scraper";
+const SEARCH_ITEMS = 30;
+const SEARCH_SORTS = { relevance: "relevance", newest: "newest", price_asc: "price_asc", price_desc: "price_desc" };
 const FETCH_REVIEWS = 50;        // asked from the scraper (many are empty placeholders)
 const FETCH_PHOTO_REVIEWS = 20;
 const MAX_REVIEWS = 40;          // shown after filtering
@@ -75,14 +79,21 @@ export default {
       return json(out);
     }
 
-    const route = url.pathname === "/api/item" ? "item" : url.pathname === "/api/seller" ? "seller" : null;
+    const route = { "/api/item": "item", "/api/seller": "seller", "/api/search": "search" }[url.pathname];
     if (!route) return json({ ok: false, error: "not_found" }, 404);
     if (!env.APIFY_TOKEN) return json({ ok: false, error: "server_not_configured" }, 500);
 
-    const id = extractId(url.searchParams.get("id") || "", route);
-    if (!id) return json({ ok: false, error: "bad_id" }, 400);
+    let id, search;
+    if (route === "search") {
+      search = parseSearch(url.searchParams);
+      if (!search) return json({ ok: false, error: "bad_query" }, 400);
+      id = [encodeURIComponent(search.q.toLowerCase()), search.sort, search.min ?? "", search.max ?? ""].join("/");
+    } else {
+      id = extractId(url.searchParams.get("id") || "", route);
+      if (!id) return json({ ok: false, error: "bad_id" }, 400);
+    }
 
-    // Cache by route + id only, so different query strings share one entry.
+    // Cache by route + normalized input only, so different query strings share one entry.
     const cacheKey = new Request(`https://cache.internal/${CACHE_VERSION}/${route}/${id}`);
     const cache = caches.default;
     const hit = await cache.match(cacheKey);
@@ -93,15 +104,18 @@ export default {
 
     let result;
     try {
-      result = route === "item" ? await getItem(env, id) : await getSeller(env, id);
+      result = route === "item" ? await getItem(env, id)
+        : route === "seller" ? await getSeller(env, id)
+        : await getSearch(env, search, url.searchParams.get("debug") === "1");
     } catch (err) {
       const e = err instanceof ApifyError ? err : null;
       return json({ ok: false, error: e ? e.code : "internal_error", detail: String(err && err.message || err).slice(0, 300) }, e ? e.status : 500);
     }
 
-    const ttl = route === "item" ? ITEM_CACHE_SECONDS : SELLER_CACHE_SECONDS;
+    const ttl = route === "item" ? ITEM_CACHE_SECONDS : route === "seller" ? SELLER_CACHE_SECONDS : SEARCH_CACHE_SECONDS;
     const body = JSON.stringify(result);
-    if (result.ok) {
+    // An empty search is not cached: it may be the Goofish block, which comes and goes.
+    if (result.ok && !(route === "search" && (!result.items.length || result.debug))) {
       ctx.waitUntil(cache.put(cacheKey, new Response(body, {
         headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": `public, max-age=${ttl}` },
       })));
@@ -191,6 +205,117 @@ async function getItem(env, id) {
       })) : null,
     },
   };
+}
+
+// ---------------------------------------------------------------- search
+
+function parseSearch(params) {
+  const q = (params.get("q") || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  if (q.length < 2) return null;
+  const num = (v) => { const n = Math.floor(Number(v)); return v != null && v !== "" && Number.isFinite(n) && n >= 0 ? n : null; };
+  return { q, sort: SEARCH_SORTS[params.get("sort")] || "relevance", min: num(params.get("min")), max: num(params.get("max")) };
+}
+
+/** Turns what the visitor typed (usually Portuguese) into the Chinese keywords a Xianyu buyer would type. */
+async function toChineseQuery(env, q) {
+  if (CJK.test(q) || !env.AI) return q;
+  try {
+    const r = await env.AI.run(LLM_MODEL, {
+      messages: [
+        { role: "system", content:
+          "Você converte buscas de produtos para o chinês simplificado usado no Xianyu (闲鱼). Recebe o que um " +
+          "comprador brasileiro digitou e devolve SOMENTE um objeto JSON {\"zh\": \"...\"} com as palavras-chave que " +
+          "um comprador chinês digitaria para achar o mesmo produto. Curto, sem explicação. Mantenha marcas, modelos " +
+          "e números como são escritos na China (ex.: \"switch 2 zelda\" -> \"Switch2 塞尔达\"; \"tênis nike air max 90\" " +
+          "-> \"耐克 Air Max 90\"; \"câmera fujifilm x100v\" -> \"富士 X100V\")." },
+        { role: "user", content: q },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0,
+      max_tokens: 200,
+      chat_template_kwargs: { enable_thinking: false },
+    });
+    const obj = parseJsonObject(extractContent(r));
+    const zh = obj && typeof obj.zh === "string" ? obj.zh.replace(/\s+/g, " ").trim().slice(0, 80) : "";
+    return zh || q;
+  } catch (e) {
+    return q;
+  }
+}
+
+function firstImage(r) {
+  const c = r.pictureUrl || r.picUrl || r.imageUrl || r.image || r.mainImage || r.coverUrl || r.cover || r.pic
+    || (Array.isArray(r.images) && r.images[0]) || (Array.isArray(r.imageUrls) && r.imageUrls[0]);
+  return typeof c === "string" ? c : (c && c.url) || null;
+}
+
+/**
+ * Search cards carry the whole description as "title". A card only needs the opening,
+ * and translating 30 full descriptions took minutes.
+ */
+function shortTitle(s) {
+  s = String(s || "").replace(/\s+/g, " ").trim();
+  if (s.length <= 44) return s;
+  const cut = s.slice(0, 44);
+  const stop = Math.max(cut.lastIndexOf("。"), cut.lastIndexOf("，"), cut.lastIndexOf("！"), cut.lastIndexOf(" "), cut.lastIndexOf("】"));
+  return (stop >= 20 ? cut.slice(0, stop + (cut[stop] === "】" ? 1 : 0)) : cut) + "…";
+}
+
+function normalizeSearchItem(r) {
+  const idFromUrl = typeof r.url === "string" ? (r.url.match(/[?&]id=(\d+)/) || [])[1] : null;
+  const id = r.itemId || r.id || idFromUrl;
+  const seller = r.seller && typeof r.seller === "object" ? r.seller : {};
+  const price = r.price != null ? r.price : r.soldPrice != null ? r.soldPrice : r.priceText;
+  return {
+    id: id != null ? String(id) : null,
+    title: shortTitle(r.title || r.itemTitle),
+    price: price != null ? price : null,
+    sellerCredit: r.sellerCredit || seller.zhimaCredit || null,
+    originalPrice: r.originalPrice != null ? r.originalPrice : (r.priceOriginal != null ? r.priceOriginal : null),
+    pic: firstImage(r),
+    area: r.area || r.location || r.city || r.province || null,
+    wantCount: r.wantCount != null ? r.wantCount : (r.wants != null ? r.wants : null),
+    sellerName: r.sellerName || r.sellerNick || seller.name || seller.nick || seller.displayName || null,
+    sellerId: r.sellerId || seller.id || null,
+    condition: r.condition || r.conditionText || null,
+    freeShipping: r.freeShipping === true,
+    postedAt: r.publishTime || r.postedAt || r.publishedAt || r.listedAt || null,
+  };
+}
+
+async function getSearch(env, search, debug) {
+  const zh = await toChineseQuery(env, search.q);
+  const input = {
+    mode: "search",
+    keyword: zh,
+    maxItems: SEARCH_ITEMS,
+    sortBy: search.sort,
+    detailLevel: "summary",
+    outputFormat: "tabular",
+  };
+  if (search.min != null) input.priceMin = search.min;
+  if (search.max != null) input.priceMax = search.max;
+
+  const t0 = Date.now();
+  const rows = await runActor(env, SEARCH_ACTOR, input);
+  const t1 = Date.now();
+  const seen = new Set();
+  const items = rows.filter((r) => r && typeof r === "object").map(normalizeSearchItem)
+    .filter((it) => it.id && it.title && !seen.has(it.id) && seen.add(it.id))
+    .slice(0, SEARCH_ITEMS);
+
+  const tr = await translateMany(env, [...items.map((it) => it.title), ...items.map((it) => it.area), ...items.map((it) => it.condition)]);
+  const t2 = Date.now();
+  const n = items.length;
+  const out = {
+    ok: true,
+    fetchedAt: new Date().toISOString(),
+    query: { q: search.q, zh, sort: search.sort, min: search.min, max: search.max },
+    items: items.map((it, k) => ({ ...it, pt: { title: tr[k], area: tr[n + k], condition: tr[2 * n + k] } })),
+  };
+  if (!n) out.note = rows.map((r) => r && (r.note || r.message || r.error || r.reason || r.rowStatus)).find(Boolean) || null;
+  if (debug) out.debug = { rowCount: rows.length, scraperMs: t1 - t0, translateMs: t2 - t1, problems: diag.slice(-3) };
+  return out;
 }
 
 // ---------------------------------------------------------------- seller
@@ -327,8 +452,10 @@ async function getSeller(env, id) {
 // ---------------------------------------------------------------- translation
 
 const CJK = /[㐀-鿿豈-﫿]/;
-const BATCH_ITEMS = 24;
-const BATCH_CHARS = 2400;
+// Small batches in parallel: the model's speed is bound by how much text one call has to write.
+const BATCH_ITEMS = 8;
+const BATCH_CHARS = 900;
+const BATCH_PARALLEL = 6;
 
 const SYSTEM_PROMPT =
   "Você é tradutor de chinês para português do Brasil, especializado em anúncios de produtos usados " +
@@ -358,7 +485,7 @@ async function translateMany(env, list) {
   if (cur.length) batches.push(cur);
 
   const done = new Map();
-  await pool(batches, 4, async (batch) => {
+  await pool(batches, BATCH_PARALLEL, async (batch) => {
     const res = await translateBatch(env, batch);
     batch.forEach((s, k) => { if (res[k]) done.set(s, res[k]); });
   });

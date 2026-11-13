@@ -102,6 +102,17 @@
   .lst .pp{color:var(--price);font-weight:800;margin-top:6px}
   .empty{color:var(--muted);padding:20px 4px}
 
+  /* search */
+  .shead{margin:14px 2px 4px;font-size:18px;font-weight:700;line-height:1.4}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0 16px}
+  .controls select,.controls input{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:8px 10px;font-size:14px;font-family:inherit}
+  .controls input{width:104px}
+  .controls label{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
+  .lstwrap{position:relative}
+  .copymini{position:absolute;top:8px;right:8px;border:0;border-radius:8px;background:rgba(0,0,0,.6);color:#fff;font-size:12px;padding:5px 8px;cursor:pointer}
+  .suggest{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+  .suggest a{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:7px 14px;font-size:14px;text-decoration:none}
+
   /* lightbox */
   .lb{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;z-index:60}
   .lb.open{display:flex}
@@ -116,15 +127,24 @@
   <div class="topwrap">
     <a class="logo" href="./">🐟闲鱼<small>em português</small></a>
     <form class="searchbar" id="form">
-      <input id="q" placeholder="Cole o link do anúncio ou do vendedor" autocomplete="off" />
-      <button type="submit">Ver</button>
+      <input id="q" placeholder="Busque um produto ou cole um link do Xianyu" autocomplete="off" />
+      <button type="submit">Buscar</button>
     </form>
     <button class="langbtn" id="lang" type="button" title="Mostrar também o texto original em chinês">中文 original</button>
   </div>
 </header>
 
 <main>
-  <div id="home" class="hint">Cole o link de um anúncio do Goofish/Xianyu (ou de um perfil de vendedor) para ver fotos, preço, vendedor e avaliações — tudo traduzido para o português.</div>
+  <div id="home">
+    <div class="hint">Pesquise no Xianyu em português: digite o produto e veja os anúncios com fotos, preço, vendedor e avaliações, tudo traduzido. Também dá para colar o link de um anúncio ou de um vendedor.</div>
+    <div class="suggest">
+      <a href="?q=switch%202" data-nav>switch 2</a>
+      <a href="?q=c%C3%A2mera%20fujifilm" data-nav>câmera fujifilm</a>
+      <a href="?q=iphone%2015%20pro" data-nav>iphone 15 pro</a>
+      <a href="?q=lego%20star%20wars" data-nav>lego star wars</a>
+      <a href="?q=t%C3%AAnis%20nike" data-nav>tênis nike</a>
+    </div>
+  </div>
   <div id="status" class="status hidden"></div>
   <div id="result"></div>
 </main>
@@ -152,6 +172,11 @@
   // ---------- helpers ----------
   function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
   function img(u){ if(!u) return ""; u=String(u); return u.indexOf("//")===0 ? "https:"+u : u; }
+  // Alibaba's CDN resizes on the fly: "<url>_300x300.jpg". Full size is kept for the lightbox.
+  function thumb(u, size){
+    u = img(u);
+    return /alicdn\.com\/.+\.(jpe?g|png|webp)$/i.test(u) ? u + "_" + size + "x" + size + ".jpg" : u;
+  }
   function goofishItem(id){ return "https://www.goofish.com/item?id="+id; }
   function fmtNum(n){ if(n==null||n==="") return "—"; var x=Number(n); return isNaN(x)?esc(n):x.toLocaleString("pt-BR"); }
   function fmtDate(s){ if(!s) return ""; var d=new Date(s); return isNaN(d)?esc(s):d.toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"}); }
@@ -164,13 +189,19 @@
     return '<'+tag+' class="t-pt">'+esc(pt)+'</'+tag+'>'+orig;
   }
 
+  // A link or a bare id opens that listing/seller; anything else is a keyword search.
   function parseQuery(raw){
-    raw = String(raw||"").trim();
+    raw = String(raw||"").replace(/\s+/g," ").trim();
     var m = raw.match(/userId=(\d+)/);
     if(m) return {type:"seller", id:m[1]};
-    m = raw.match(/[?&]id=(\d+)/) || raw.match(/(\d{8,})/);
+    m = raw.match(/[?&]id=(\d+)/) || raw.match(/^(\d{8,})$/);
     if(m) return {type:"item", id:m[1]};
+    if(/^https?:\/\//i.test(raw)) return null;        // some other link: not something we can open
+    if(raw.length >= 2) return {type:"search", q:raw.slice(0,80), sort:"relevance", min:"", max:""};
     return null;
+  }
+  function searchPath(q){
+    return "q="+encodeURIComponent(q.q)+(q.sort&&q.sort!=="relevance"?"&sort="+q.sort:"")+(q.min!==""&&q.min!=null?"&min="+q.min:"")+(q.max!==""&&q.max!=null?"&max="+q.max:"");
   }
 
   function setStatus(html, isErr){
@@ -196,12 +227,16 @@
     apify_auth: "O serviço está temporariamente indisponível.",
     server_not_configured: "O serviço está temporariamente indisponível.",
     bad_id: "Não reconheci esse link. Cole o link de um anúncio (goofish.com/item?id=…) ou de um vendedor (goofish.com/personal?userId=…).",
+    bad_query: "Digite pelo menos duas letras para buscar.",
     forbidden_origin: "O serviço está temporariamente indisponível."
   };
 
+  // Answers already seen in this visit, so "back" from a listing to the results is instant.
+  var seen = {};
   function api(path){
+    if(seen[path]) return Promise.resolve(seen[path]);
     return fetch(API_BASE + path).then(function(r){
-      return r.json().catch(function(){ return {ok:false,error:"http_"+r.status}; });
+      return r.json().then(function(d){ if(d && d.ok) seen[path] = d; return d; }, function(){ return {ok:false,error:"http_"+r.status}; });
     }, function(){ return {ok:false,error:"network"}; });
   }
 
@@ -259,7 +294,7 @@
       '<div class="detail">'+
         '<div class="card gallery">'+
           (images.length ? '<img class="hero" id="hero" src="'+esc(images[0])+'" data-gallery="'+gal+'" data-i="0" referrerpolicy="no-referrer" alt="" />' : '<div class="hero" style="display:flex;align-items:center;justify-content:center;color:#888">sem imagem</div>')+
-          (images.length>1 ? '<div class="thumbs" id="thumbs">'+images.map(function(u,i){ return '<img src="'+esc(u)+'" data-idx="'+i+'" class="'+(i===0?"active":"")+'" referrerpolicy="no-referrer" alt="" />'; }).join("")+'</div>' : '')+
+          (images.length>1 ? '<div class="thumbs" id="thumbs">'+images.map(function(u,i){ return '<img src="'+esc(thumb(u,200))+'" data-full="'+esc(u)+'" data-idx="'+i+'" class="'+(i===0?"active":"")+'" referrerpolicy="no-referrer" alt="" />'; }).join("")+'</div>' : '')+
         '</div>'+
         '<div>'+
           '<div class="price"><span class="cur">¥</span><span class="val">'+esc(it.price!=null?it.price:"—")+'</span>'+
@@ -289,7 +324,7 @@
     var hero = document.getElementById("hero"), thumbs = document.getElementById("thumbs");
     if(thumbs) thumbs.addEventListener("click", function(e){
       var t = e.target.closest("img"); if(!t) return;
-      hero.src = t.src; hero.setAttribute("data-i", t.getAttribute("data-idx"));
+      hero.src = t.getAttribute("data-full"); hero.setAttribute("data-i", t.getAttribute("data-idx"));
       [].forEach.call(thumbs.querySelectorAll("img"), function(im){ im.classList.remove("active"); });
       t.classList.add("active");
     });
@@ -307,13 +342,16 @@
 
   // ---------- seller page ----------
   var RATING = { positive:["positive","👍 Positiva"], negative:["negative","👎 Negativa"], neutral:["neutral","😐 Neutra"], middle:["neutral","😐 Neutra"] };
-  var VERIF = { "Real-name verified":"Identidade verificada", "Real person verified":"Pessoa real verificada", "Zhima credit":"Crédito Zhima", "Xianyu upgraded account":"Conta Xianyu verificada", "Taobao/Xianyu user":"Usuário Taobao/Xianyu" };
+  var VERIF = { "Real-name verified":"Identidade verificada", "Real person verified":"Rosto verificado", "Real-person verified":"Rosto verificado",
+                "Zhima credit":"Crédito Zhima verificado", "Zhima credit verified":"Crédito Zhima verificado",
+                "Xianyu upgraded account":"Conta Xianyu verificada", "Taobao/Xianyu user":"Usuário Taobao/Xianyu" };
 
   function renderSeller(id, d){
     var s = d.seller || {}, pt = d.pt || {}, reviews = d.reviews || [], listings = d.listings || [];
     var shop = s.shop || {}, social = s.social || {}, counts = s.counts || {};
     var cb = s.creditBadge;
-    var tags = (s.verificationTags||[]).map(function(t){ return '<span class="badge ok">'+esc(VERIF[t.label]||t.label)+'</span>'; }).join("");
+    // Only the verification labels we can name in Portuguese; unknown ones are left out.
+    var tags = (s.verificationTags||[]).filter(function(t){ return VERIF[t.label]; }).map(function(t){ return '<span class="badge ok">'+esc(VERIF[t.label])+'</span>'; }).join("");
     var withPhotos = reviews.filter(function(r){ return r.imageUrls && r.imageUrls.length; }).length;
 
     var TAB_PT = { positive:"👍 Positivas", negative:"👎 Negativas", neutral:"😐 Neutras", middle:"😐 Neutras",
@@ -396,9 +434,9 @@
       '</div>'+
       (r.text?'<div class="rtext">'+tx(pt.text, r.text)+'</div>':'')+
       ((pt.tags&&pt.tags.length)?'<div>'+pt.tags.map(function(t,i){ return '<span class="pill">'+esc(t)+'<span class="t-zh"> · '+esc((r.tags||[])[i]||"")+'</span></span>'; }).join("")+'</div>':'')+
-      (photos.length?'<div class="rphotos">'+photos.map(function(u,i){ return '<img src="'+esc(u)+'" data-gallery="'+gal+'" data-i="'+i+'" referrerpolicy="no-referrer" loading="lazy" alt="Foto da avaliação" />'; }).join("")+'</div>':'')+
+      (photos.length?'<div class="rphotos">'+photos.map(function(u,i){ return '<img src="'+esc(thumb(u,300))+'" data-gallery="'+gal+'" data-i="'+i+'" referrerpolicy="no-referrer" loading="lazy" alt="Foto da avaliação" />'; }).join("")+'</div>':'')+
       (ti.itemTitle||r.itemId ? '<a class="bought" '+(r.itemId?'href="?id='+esc(r.itemId)+'" data-nav':'')+'>'+
-        (ti.itemPic?'<img src="'+esc(img(ti.itemPic))+'" referrerpolicy="no-referrer" alt="" />':'')+
+        (ti.itemPic?'<img src="'+esc(thumb(ti.itemPic,100))+'" referrerpolicy="no-referrer" alt="" />':'')+
         '<div style="min-width:0"><div class="sub" style="margin:0">Comprou:</div>'+tx(pt.itemTitle, ti.itemTitle)+
         '<div class="sub" style="margin:0">'+(r.itemPrice!=null?'¥'+esc(r.itemPrice):'')+(r.tradeItemSkuInfo?' · '+esc(r.tradeItemSkuInfo):'')+'</div></div></a>' : '')+
     '</div>';
@@ -406,7 +444,7 @@
 
   function listingCard(l){
     var pt = l.pt || {};
-    var pic = img(l.picUrl || (l.images && l.images[0] && (l.images[0].url||l.images[0])));
+    var pic = thumb(l.picUrl || (l.images && l.images[0] && (l.images[0].url||l.images[0])), 400);
     return '<a class="card lst" href="?id='+esc(l.id)+'" data-nav>'+
       (pic?'<img src="'+esc(pic)+'" referrerpolicy="no-referrer" loading="lazy" alt="" />':'<div style="aspect-ratio:1/1;background:var(--chip)"></div>')+
       '<div class="b"><div class="tt">'+tx(pt.title, l.title)+'</div>'+
@@ -416,29 +454,97 @@
       '</div></a>';
   }
 
+  // ---------- search results ----------
+  function searchCard(it){
+    var pt = it.pt || {};
+    var meta = [];
+    if(it.area) meta.push(tx(pt.area, it.area, "span"));
+    if(it.wantCount) meta.push("❤ "+fmtNum(it.wantCount));
+    return '<div class="lstwrap">'+
+      '<a class="card lst" href="?id='+esc(it.id)+'" data-nav>'+
+        (it.pic?'<img src="'+esc(thumb(it.pic,400))+'" referrerpolicy="no-referrer" loading="lazy" alt="" />':'<div style="aspect-ratio:1/1;background:var(--chip)"></div>')+
+        '<div class="b"><div class="tt">'+tx(pt.title, it.title)+'</div>'+
+        '<div class="pp">¥'+esc(it.price!=null?it.price:"—")+
+          (it.condition?' <span class="pill" style="margin:0 0 0 6px;font-weight:600">'+esc(pt.condition||it.condition)+'</span>':'')+'</div>'+
+        (meta.length?'<div class="sub">'+meta.join(" · ")+'</div>':'')+
+        (it.freeShipping?'<div class="sub">frete grátis na China</div>':'')+
+        '</div></a>'+
+      '<button class="copymini" type="button" data-copy="'+esc(goofishItem(it.id))+'" title="Copiar o link do anúncio">🔗 copiar</button>'+
+    '</div>';
+  }
+
+  function renderSearch(q, d){
+    var items = d.items || [], query = d.query || {};
+    var usedZh = query.zh && query.zh !== query.q;
+    $result.innerHTML =
+      '<div class="shead">'+(items.length ? items.length+' anúncios para “'+esc(query.q||q.q)+'”' : 'Nenhum anúncio para “'+esc(query.q||q.q)+'”')+'</div>'+
+      (usedZh?'<div class="hint" style="margin:0 2px">Pesquisado no Xianyu como <b>'+esc(query.zh)+'</b></div>':'')+
+      '<form class="controls" id="sform">'+
+        '<label>Ordenar <select id="ssort">'+
+          [["relevance","Mais relevantes"],["newest","Mais recentes"],["price_asc","Menor preço"],["price_desc","Maior preço"]].map(function(o){
+            return '<option value="'+o[0]+'"'+(o[0]===(q.sort||"relevance")?" selected":"")+'>'+o[1]+'</option>'; }).join("")+
+        '</select></label>'+
+        '<label>Preço ¥ <input id="smin" type="number" min="0" inputmode="numeric" placeholder="mínimo" value="'+esc(q.min)+'" /></label>'+
+        '<label>até <input id="smax" type="number" min="0" inputmode="numeric" placeholder="máximo" value="'+esc(q.max)+'" /></label>'+
+        '<button class="btn" type="submit">Aplicar</button>'+
+      '</form>'+
+      (items.length ? '<div class="grid">'+items.map(searchCard).join("")+'</div>' :
+        '<div class="empty">O Xianyu não devolveu resultados agora. Pode ser o termo, o filtro de preço, ou o bloqueio de buscas deles neste horário. Tente outro termo ou repita daqui a pouco.</div>');
+
+    function apply(){
+      load({type:"search", q:q.q, sort:document.getElementById("ssort").value,
+            min:document.getElementById("smin").value.trim(), max:document.getElementById("smax").value.trim()}, true);
+    }
+    document.getElementById("sform").addEventListener("submit", function(e){ e.preventDefault(); apply(); });
+    document.getElementById("ssort").addEventListener("change", apply);
+  }
+
+  // "copy link" buttons on result cards
+  document.addEventListener("click", function(e){
+    var b = e.target.closest("[data-copy]");
+    if(!b) return;
+    e.preventDefault();
+    var text = b.getAttribute("data-copy");
+    var done = function(){ var o=b.textContent; b.textContent="✓ copiado"; setTimeout(function(){ b.textContent=o; },1500); };
+    if(navigator.clipboard) navigator.clipboard.writeText(text).then(done, function(){ prompt("Copie o link:", text); });
+    else prompt("Copie o link:", text);
+  });
+
   // ---------- routing ----------
   function load(q, push){
-    if(!q){ $result.innerHTML=""; $status.className="status hidden"; $home.classList.remove("hidden"); return; }
+    if(!q){ clearInterval(timer); load.current=null; $result.innerHTML=""; $status.className="status hidden"; $home.classList.remove("hidden"); document.getElementById("q").value=""; return; }
     $home.classList.add("hidden");
     $result.innerHTML = "";
-    if(push) history.pushState(null, "", q.type==="seller" ? "?seller="+q.id : "?id="+q.id);
-    document.getElementById("q").value = q.type==="seller" ? "https://www.goofish.com/personal?userId="+q.id : goofishItem(q.id);
-    loading(q.type==="seller" ? "o perfil e as avaliações do vendedor" : "o anúncio");
-    var path = q.type==="seller" ? "/api/seller?id="+q.id : "/api/item?id="+q.id;
-    var reqKey = path; load.current = reqKey;
+    var path, shown, what, url;
+    if(q.type==="search"){
+      path = "/api/search?"+searchPath(q); url = "?"+searchPath(q); shown = q.q; what = "anúncios";
+    } else if(q.type==="seller"){
+      path = "/api/seller?id="+q.id; url = "?seller="+q.id; shown = "https://www.goofish.com/personal?userId="+q.id; what = "o perfil e as avaliações do vendedor";
+    } else {
+      path = "/api/item?id="+q.id; url = "?id="+q.id; shown = goofishItem(q.id); what = "o anúncio";
+    }
+    if(push) history.pushState(null, "", url);
+    document.getElementById("q").value = shown;
+    if(!seen[path]) loading(what);
+    load.current = path;
     api(path).then(function(d){
-      if(load.current!==reqKey) return;   // the user navigated away meanwhile
+      if(load.current!==path) return;   // the user navigated away meanwhile
       if(!d || !d.ok){ setStatus(ERRORS[d&&d.error] || "Algo deu errado. Tente de novo em instantes.", true); return; }
       setStatus("", false); $status.className = "status hidden";
-      if(q.type==="seller") renderSeller(q.id, d); else renderItem(q.id, d);
+      if(q.type==="search") renderSearch(q, d); else if(q.type==="seller") renderSeller(q.id, d); else renderItem(q.id, d);
       window.scrollTo(0,0);
     });
   }
   function fromUrl(){
-    var u = new URL(location.href);
-    if(u.searchParams.get("seller")) return {type:"seller", id:u.searchParams.get("seller").replace(/\D/g,"")};
-    var id = u.searchParams.get("id") || u.searchParams.get("q");
-    return id ? parseQuery(id) : null;
+    var p = new URL(location.href).searchParams;
+    if(p.get("seller")) return {type:"seller", id:p.get("seller").replace(/\D/g,"")};
+    if(p.get("id")) return parseQuery("?id="+p.get("id").replace(/\D/g,"")) ;
+    if(p.get("q")){
+      var q = parseQuery(p.get("q"));
+      if(q && q.type==="search"){ q.sort = p.get("sort")||"relevance"; q.min = p.get("min")||""; q.max = p.get("max")||""; }
+      return q;
+    }
+    return null;
   }
 
   document.getElementById("form").addEventListener("submit", function(e){
@@ -451,8 +557,10 @@
     var a = e.target.closest("a[data-nav]");
     if(!a || e.ctrlKey || e.metaKey || e.shiftKey) return;
     e.preventDefault();
-    var u = new URL(a.getAttribute("href"), location.href);
-    var q = u.searchParams.get("seller") ? {type:"seller", id:u.searchParams.get("seller")} : parseQuery(u.searchParams.get("id"));
+    var p = new URL(a.getAttribute("href"), location.href).searchParams;
+    var q = p.get("seller") ? {type:"seller", id:p.get("seller")}
+          : p.get("id") ? {type:"item", id:p.get("id")}
+          : p.get("q") ? parseQuery(p.get("q")) : null;
     load(q, true);
   });
   window.addEventListener("popstate", function(){ load(fromUrl(), false); });
