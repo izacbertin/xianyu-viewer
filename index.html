@@ -175,7 +175,12 @@
   // Alibaba's CDN resizes on the fly: "<url>_300x300.jpg". Full size is kept for the lightbox.
   function thumb(u, size){
     u = img(u);
-    return /alicdn\.com\/.+\.(jpe?g|png|webp)$/i.test(u) ? u + "_" + size + "x" + size + ".jpg" : u;
+    return /alicdn\.com\/.+\.(jpe?g|png|webp|heic)$/i.test(u) ? u + "_" + size + "x" + size + ".jpg" : u;
+  }
+  // Full-size picture. iPhone photos come as .heic, which most browsers cannot show; the CDN converts them.
+  function full(u){
+    u = img(u);
+    return /alicdn\.com\/.+\.heic$/i.test(u) ? u + "_.webp" : u;
   }
   function goofishItem(id){ return "https://www.goofish.com/item?id="+id; }
   function fmtNum(n){ if(n==null||n==="") return "—"; var x=Number(n); return isNaN(x)?esc(n):x.toLocaleString("pt-BR"); }
@@ -267,7 +272,7 @@
   function renderItem(id, d){
     var it = d.item || {}, pt = d.pt || {};
     var images = (Array.isArray(it.images)?it.images:[]).map(img).filter(Boolean);
-    var gal = esc(JSON.stringify(images));
+    var gal = esc(JSON.stringify(images.map(full)));
     var stats = [];
     if(it.wantCount!=null) stats.push("❤ "+fmtNum(it.wantCount)+" querem");
     if(it.viewCount!=null) stats.push("👁 "+fmtNum(it.viewCount)+" visualizações");
@@ -293,8 +298,8 @@
     $result.innerHTML =
       '<div class="detail">'+
         '<div class="card gallery">'+
-          (images.length ? '<img class="hero" id="hero" src="'+esc(images[0])+'" data-gallery="'+gal+'" data-i="0" referrerpolicy="no-referrer" alt="" />' : '<div class="hero" style="display:flex;align-items:center;justify-content:center;color:#888">sem imagem</div>')+
-          (images.length>1 ? '<div class="thumbs" id="thumbs">'+images.map(function(u,i){ return '<img src="'+esc(thumb(u,200))+'" data-full="'+esc(u)+'" data-idx="'+i+'" class="'+(i===0?"active":"")+'" referrerpolicy="no-referrer" alt="" />'; }).join("")+'</div>' : '')+
+          (images.length ? '<img class="hero" id="hero" src="'+esc(full(images[0]))+'" data-gallery="'+gal+'" data-i="0" referrerpolicy="no-referrer" alt="" />' : '<div class="hero" style="display:flex;align-items:center;justify-content:center;color:#888">sem imagem</div>')+
+          (images.length>1 ? '<div class="thumbs" id="thumbs">'+images.map(function(u,i){ return '<img src="'+esc(thumb(u,200))+'" data-full="'+esc(full(u))+'" data-idx="'+i+'" class="'+(i===0?"active":"")+'" referrerpolicy="no-referrer" alt="" />'; }).join("")+'</div>' : '')+
         '</div>'+
         '<div>'+
           '<div class="price"><span class="cur">¥</span><span class="val">'+esc(it.price!=null?it.price:"—")+'</span>'+
@@ -421,7 +426,7 @@
     var pt = r.pt || {};
     var rk = RATING[r.rating] || null;
     var photos = (r.imageUrls||[]).map(img);
-    var gal = esc(JSON.stringify(photos));
+    var gal = esc(JSON.stringify(photos.map(full)));
     var ti = r.tradeInfo || {};
     var when = fmtDate(r.at || r.dateLabel);
     return '<div class="card review">'+
