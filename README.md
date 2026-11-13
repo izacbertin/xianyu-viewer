@@ -23,9 +23,11 @@ O próprio navegador chama a API, com o token guardado **só no seu navegador** 
 
 1. Crie o repositório no GitHub e suba o `index.html`.
 2. **Settings → Pages →** Branch `main` / `/root` → salvar. Seu site fica em `https://SEU-USUARIO.github.io/SEU-REPO/`.
-3. Crie uma conta no [Apify](https://apify.com), pegue o **token** em *Settings → API tokens*, e escolha um **actor** de Goofish/Xianyu detail no [Store](https://apify.com/store?search=goofish).
-4. No site, clique no **⚙️** → aba **Direto (Apify)** → cole token, actor (`usuario/actor`) e, se preciso, ajuste o **template de input** conforme a página *Input* do actor.
+3. Crie uma conta no [Apify](https://apify.com) (dá pra entrar com GitHub ou Google) e copie o **token** em [console.apify.com → Settings → API & Integrations](https://console.apify.com/settings/integrations).
+4. No site, clique no **⚙️** → aba **Direto (Apify)** → cole o token → **Salvar**. O actor (`dami_studio/goofish-scraper`, ~US$ 0,004 por anúncio) e o input já vêm preenchidos.
 5. Cole o link do anúncio e clique **Ver**.
+
+> O plano grátis do Apify dá US$ 5 de crédito por mês, o que cobre mais de mil anúncios.
 
 > ⚠️ Nesse modo o token fica no navegador de quem usa o site. Para uso **pessoal** tudo bem. Se for compartilhar o site publicamente, use o Modo 2.
 
