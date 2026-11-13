@@ -102,7 +102,7 @@
 </header>
 
 <main>
-  <div class="hint">Cole o link de qualquer anúncio do Goofish/Xianyu. O site busca <b>foto, preço e vendedor</b> pelo motor que você configurar (⚙️). As imagens vêm do CDN da Alibaba e abrem normal do Brasil. <span style="opacity:.6">· v3</span></div>
+  <div class="hint">Cole o link de qualquer anúncio do Goofish/Xianyu. O site busca <b>foto, preço e vendedor</b> pelo motor que você configurar (⚙️). As imagens vêm do CDN da Alibaba e abrem normal do Brasil. <span style="opacity:.6">· v4</span></div>
   <div id="status" class="status hidden"></div>
   <div id="result"></div>
 </main>
@@ -218,12 +218,17 @@
     var body;
     try{ body = JSON.parse(tmpl); }catch(e){ throw new Error("Template de input não é JSON válido."); }
     return fetch(url, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
-      .then(function(r){ if(!r.ok) return r.text().then(function(t){throw new Error("Apify "+r.status+": "+t.slice(0,300));}); return r.json(); });
+      .then(function(r){
+        if(r.status===401) throw new Error("o Apify não aceitou o token salvo. Abra console.apify.com/settings/integrations, clique no ícone de <b>copiar</b> ao lado do token (não selecione o texto, que vem mascarado), cole no ⚙️ e salve de novo.");
+        if(r.status===402) throw new Error("sua conta do Apify ficou sem crédito neste mês.");
+        if(!r.ok) return r.text().then(function(t){throw new Error("Apify "+r.status+": "+esc(t.slice(0,300)));});
+        return r.json();
+      });
   }
   function callProxy(id){
     if(!cfg.base) throw new Error("Configure a URL do backend no ⚙️.");
     var url = cfg.base.replace(/\/$/,"") + "?id=" + id;
-    return fetch(url).then(function(r){ if(!r.ok) return r.text().then(function(t){throw new Error("Backend "+r.status+": "+t.slice(0,300));}); return r.json(); });
+    return fetch(url).then(function(r){ if(!r.ok) return r.text().then(function(t){throw new Error("Backend "+r.status+": "+esc(t.slice(0,300)));}); return r.json(); });
   }
 
   // ---------- render ----------
@@ -344,7 +349,7 @@
     try{ p = cfg.mode==="proxy" ? callProxy(id) : callDirect(id); }
     catch(err){ setStatus(esc(err.message), true); return; }
     p.then(function(data){ render(id, data); })
-     .catch(function(err){ setStatus("Falhou: "+esc(err.message), true); });
+     .catch(function(err){ setStatus("Falhou: "+err.message, true); });
   }
 
   document.getElementById("form").addEventListener("submit", function(e){
@@ -384,7 +389,14 @@
   mask.addEventListener("click", function(e){ if(e.target===mask) mask.classList.remove("open"); });
   document.getElementById("cfgSave").addEventListener("click", function(){
     cfg.mode  = cfg._tab==="proxy" ? "proxy" : "direct";
-    cfg.token = document.getElementById("cfgToken").value.trim();
+    var tok = document.getElementById("cfgToken").value.replace(/^["'\s]+|["'\s]+$/g, "");
+    if(cfg._tab!=="proxy" && tok && !/^apify_api_[A-Za-z0-9]{20,}$/.test(tok)){
+      var why = /[•*…]/.test(tok) ? "parece o token mascarado (com pontinhos)" :
+                !/^apify_api_/.test(tok) ? "não começa com apify_api_" : "está incompleto";
+      alert("Isso não parece um token do Apify: " + why + ".\n\nNo console do Apify, clique no ícone de COPIAR ao lado do token e cole aqui.");
+      return;
+    }
+    cfg.token = tok;
     cfg.actor = document.getElementById("cfgActor").value.trim() || DEFAULT_ACTOR;
     cfg.input = document.getElementById("cfgInput").value.trim() || DEFAULT_INPUT;
     cfg.base  = document.getElementById("cfgBase").value.trim();
