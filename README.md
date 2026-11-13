@@ -40,10 +40,24 @@ Depois, coloque a URL do Worker em `API_BASE`, no começo do script do `index.ht
 
 `ALLOW_ORIGIN` (em `wrangler.toml`) lista os sites que podem usar o backend. Ao trocar de domínio, atualize ali.
 
-## Custos
+## Rotas do backend
 
-- **Apify**: ~US$ 0,004 por anúncio; perfil do vendedor com 30 avaliações e 12 anúncios ~US$ 0,06. O plano grátis dá US$ 5/mês.
-- **Cloudflare**: Workers e Workers AI têm cota grátis diária. O cache evita pagar duas vezes pela mesma consulta.
+| Rota | O que faz | Cache |
+|---|---|---|
+| `/api/search?q=…&sort=…&min=…&max=…` | Traduz a busca para chinês e lista até 30 anúncios | 1 h |
+| `/api/item?id=…` | Anúncio completo traduzido | 6 h |
+| `/api/seller?id=…` | Perfil, avaliações (as com foto primeiro) e outros anúncios | 12 h |
+| `/api/health?diag=1` | Estado do serviço e um teste rápido da tradução | — |
+
+A busca usa `unitbytes/goofish-scraper` (modo search); a tradução usa `@cf/google/gemma-4-26b-a4b-it`, com `m2m100` de reserva.
+
+## Custos (Apify, por consulta nova; repetidas saem do cache)
+
+- Busca com 30 resultados: ~US$ 0,065
+- Anúncio: ~US$ 0,004
+- Perfil do vendedor: ~US$ 0,10 (50 avaliações + 20 com foto + 12 anúncios)
+
+O plano grátis do Apify dá US$ 5/mês. **Cloudflare**: Workers e Workers AI têm cota grátis diária.
 
 ## Limites
 
