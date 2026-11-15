@@ -185,6 +185,16 @@
   function goofishItem(id){ return "https://www.goofish.com/item?id="+id; }
   function fmtNum(n){ if(n==null||n==="") return "—"; var x=Number(n); return isNaN(x)?esc(n):x.toLocaleString("pt-BR"); }
   function fmtDate(s){ if(!s) return ""; var d=new Date(s); return isNaN(d)?esc(s):d.toLocaleDateString("pt-BR",{day:"2-digit",month:"short",year:"numeric"}); }
+  // "no Xianyu há 10 anos" a partir da data de cadastro do vendedor.
+  function accountAge(s){
+    if(!s) return "";
+    var d=new Date(s); if(isNaN(d)) return "";
+    var months=Math.floor((Date.now()-d.getTime())/(30.44*86400000));
+    if(months<1) return "no Xianyu há menos de 1 mês";
+    if(months<12) return "no Xianyu há "+months+(months===1?" mês":" meses");
+    var y=Math.floor(months/12);
+    return "no Xianyu há "+y+(y===1?" ano":" anos")+" (desde "+d.getFullYear()+")";
+  }
   // Portuguese text, with the original underneath when the toggle is on.
   function tx(pt, zh, tag){
     tag = tag || "div";
@@ -313,6 +323,7 @@
             '<div class="ava">🧑</div>'+
             '<div style="flex:1;min-width:0"><div class="who">'+esc(it.sellerNick||"Vendedor")+badges+'</div>'+
               '<div class="sub">'+(pt.location||it.city ? tx(pt.location, [it.city,it.district].filter(Boolean).join(" "), "span") : "localização não informada")+(it.sellerLastSeen?' · '+tx(pt.sellerLastSeen, it.sellerLastSeen, "span"):'')+'</div>'+
+              (accountAge(it.sellerSince)?'<div class="sub">🗓 '+esc(accountAge(it.sellerSince))+'</div>':'')+
               (rep.length?'<div class="sub">'+rep.join(" · ")+'</div>':'')+
             '</div>'+
             (sellerHref?'<span class="btn primary" style="white-space:nowrap">Ver perfil e avaliações ›</span>':'')+
