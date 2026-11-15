@@ -86,6 +86,10 @@ export default {
       return json(out);
     }
 
+    if (url.pathname === "/api/fx") {
+      return json(await getFx(env));
+    }
+
     const route = { "/api/item": "item", "/api/seller": "seller", "/api/seller-photos": "seller-photos", "/api/search": "search" }[url.pathname];
     if (!route) return json({ ok: false, error: "not_found" }, 404);
     if (!env.APIFY_TOKEN) return json({ ok: false, error: "server_not_configured" }, 500);
@@ -157,6 +161,26 @@ async function cachePut(env, key, body, ttl) {
       headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": `public, max-age=${ttl}` },
     }));
   } catch (e) { /* a failed cache write only costs a future Apify call */ }
+}
+
+// ---------------------------------------------------------------- câmbio
+
+// Cotação CNY -> BRL, de uma fonte pública grátis, guardada 12h.
+async function getFx(env) {
+  const key = `${CACHE_VERSION}:fx:CNY:BRL`;
+  const cached = await cacheGet(env, key);
+  if (cached) { try { return JSON.parse(cached); } catch (e) { /* refetch */ } }
+  try {
+    const r = await fetch("https://open.er-api.com/v6/latest/CNY");
+    const d = await r.json();
+    const rate = d && d.rates && d.rates.BRL;
+    if (!rate) return { ok: false, error: "fx_unavailable" };
+    const out = { ok: true, base: "CNY", quote: "BRL", rate, at: new Date().toISOString() };
+    await cachePut(env, key, JSON.stringify(out), 12 * 3600);
+    return out;
+  } catch (e) {
+    return { ok: false, error: "fx_unavailable" };
+  }
 }
 
 // ---------------------------------------------------------------- input

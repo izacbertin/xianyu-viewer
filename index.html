@@ -112,6 +112,17 @@
   .copymini{position:absolute;top:8px;right:8px;border:0;border-radius:8px;background:rgba(0,0,0,.6);color:#fff;font-size:12px;padding:5px 8px;cursor:pointer}
   .suggest{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
   .suggest a{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:7px 14px;font-size:14px;text-decoration:none}
+  .brl{color:var(--muted);font-weight:400}
+  .price .brl{font-size:.42em;vertical-align:7px;margin-left:8px}
+  .pp .brl{font-size:.85em;margin-left:4px}
+  .btn.buy{background:var(--price);border-color:var(--price);color:#fff;font-weight:700}
+  .btn.on{background:var(--xy-yellow);border-color:var(--xy-yellow-deep);color:#1a1a1a;font-weight:700}
+  .savemini{right:auto;left:8px;font-size:15px;line-height:1}
+  .savemini.on{background:var(--price)}
+  .favsellers{display:flex;flex-direction:column;gap:10px}
+  .favseller{display:flex;align-items:center;gap:12px;padding:12px;flex-wrap:wrap}
+  .favseller .ava{width:44px;height:44px;border-radius:50%;flex:0 0 auto;object-fit:cover;overflow:hidden}
+  .favseller .btn{padding:7px 10px;font-size:13px}
 
   /* lightbox */
   .lb{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;z-index:60}
@@ -130,6 +141,7 @@
       <input id="q" placeholder="Busque um produto ou cole um link do Xianyu" autocomplete="off" />
       <button type="submit">Buscar</button>
     </form>
+    <button class="langbtn" id="favsBtn" type="button" title="Meus favoritos">⭐ Favoritos</button>
     <button class="langbtn" id="lang" type="button" title="Mostrar também o texto original em chinês">中文 original</button>
   </div>
 </header>
@@ -203,6 +215,63 @@
     var orig = zh && zh!==pt ? '<'+tag+' class="t-zh">'+esc(zh)+'</'+tag+'>' : "";
     return '<'+tag+' class="t-pt">'+esc(pt)+'</'+tag+'>'+orig;
   }
+
+  // ---------- câmbio (¥ -> R$) ----------
+  var fxRate = null, fxAt = 0;
+  (function(){
+    try{ var c=JSON.parse(localStorage.getItem("xv.fx")||"null"); if(c&&c.rate){ fxRate=c.rate; fxAt=c.at||0; } }catch(e){}
+    if(!(fxAt && Date.now()-fxAt < 12*3600*1000)){
+      fetch(API_BASE+"/api/fx").then(function(r){return r.json();}).then(function(d){
+        if(d&&d.ok&&d.rate){ fxRate=d.rate; try{localStorage.setItem("xv.fx",JSON.stringify({rate:d.rate,at:Date.now()}));}catch(e){} refreshPrices(); }
+      }).catch(function(){});
+    }
+  })();
+  function brl(yuan){
+    if(fxRate==null) return "";
+    var n=Number(yuan); if(yuan==null||yuan===""||isNaN(n)) return "";
+    return (n*fxRate).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+  }
+  // Mostra o valor em R$; se a cotação chegar depois, refreshPrices() preenche.
+  function brlTag(yuan){ var v=brl(yuan); return '<span class="brl" data-yuan="'+esc(yuan)+'">'+(v?"≈ "+esc(v):"")+'</span>'; }
+  function refreshPrices(){
+    [].forEach.call(document.querySelectorAll(".brl[data-yuan]"), function(el){
+      var v=brl(el.getAttribute("data-yuan")); el.textContent = v?"≈ "+v:"";
+    });
+  }
+
+  // ---------- FansBuy ----------
+  function fansbuyUrl(id){ return "https://fansbuy.com/item-xianyu-"+encodeURIComponent(id)+".html?url="+encodeURIComponent(goofishItem(id)); }
+
+  // ---------- favoritos (guardados só neste navegador) ----------
+  function lsGet(k){ try{ return JSON.parse(localStorage.getItem(k)||"[]")||[]; }catch(e){ return []; } }
+  function lsSet(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
+  function favItems(){ return lsGet("xv.favItems"); }
+  function favSellers(){ return lsGet("xv.favSellers"); }
+  function isFavItem(id){ id=String(id); return favItems().some(function(x){return x.id===id;}); }
+  function isFavSeller(id){ id=String(id); return favSellers().some(function(x){return x.id===id;}); }
+  function toggleFavItem(obj){
+    var list=favItems(), id=String(obj.id), i=list.findIndex(function(x){return x.id===id;});
+    if(i>=0) list.splice(i,1); else list.unshift({id:id,title:obj.title||"",price:obj.price,pic:obj.pic||"",at:Date.now()});
+    lsSet("xv.favItems",list); return i<0;   // true = agora salvo
+  }
+  function sellerCategories(){ return favSellers().map(function(x){return x.category;}).filter(function(c,i,a){return c&&a.indexOf(c)===i;}); }
+  function addFavSeller(obj, category){
+    var list=favSellers(), id=String(obj.id), i=list.findIndex(function(x){return x.id===id;});
+    var entry={id:id,name:obj.name||"Vendedor",avatar:obj.avatar||"",category:category||"Sem categoria",at:Date.now()};
+    if(i>=0) list[i]=entry; else list.unshift(entry);
+    lsSet("xv.favSellers",list);
+  }
+  function removeFavSeller(id){ id=String(id); lsSet("xv.favSellers", favSellers().filter(function(x){return x.id!==id;})); }
+  function findSeller(id){ id=String(id); return favSellers().filter(function(x){return x.id===id;})[0]; }
+  function askCategory(current){
+    var cats=sellerCategories();
+    var c=prompt("Categoria desse vendedor (ex.: Eletrônicos, Roupas, Tênis):"+(cats.length?"\n\nJá usadas: "+cats.join(", "):""), current||"");
+    if(c===null) return null;
+    return c.trim() || "Sem categoria";
+  }
+  function setSaveBtn(b,fav){ var mini=b.classList.contains("savemini"); b.innerHTML = mini?(fav?"♥":"♡"):(fav?"♥ Salvo":"♡ Salvar"); b.classList.toggle("on",fav); b.title = fav?"Remover dos salvos":"Salvar anúncio"; }
+  function setSellerFavBtn(b,fav){ b.innerHTML = fav?"★ Nos favoritos":"☆ Favoritar vendedor"; b.classList.toggle("on",fav); }
+  function updateFavCount(){ var n=favItems().length+favSellers().length, b=document.getElementById("favsBtn"); if(b) b.textContent="⭐ Favoritos"+(n?" ("+n+")":""); }
 
   // A link or a bare id opens that listing/seller; anything else is a keyword search.
   function parseQuery(raw){
@@ -315,6 +384,7 @@
         '<div>'+
           '<div class="price"><span class="cur">¥</span><span class="val">'+esc(it.price!=null?it.price:"—")+'</span>'+
             (Number(it.originalPrice) > Number(it.price) ? '<s class="orig">¥'+esc(it.originalPrice)+'</s>' : '')+
+            (it.price!=null ? brlTag(it.price) : '')+
             (pt.condition ? '<span class="pill">'+esc(pt.condition)+'</span>' : '')+
             (it.freeShipping ? '<span class="pill">frete grátis na China</span>' : '')+
           '</div>'+
@@ -330,6 +400,8 @@
             (sellerHref?'<span class="btn primary" style="white-space:nowrap">Ver perfil e avaliações ›</span>':'')+
           '</a>'+
           '<div class="row">'+
+            '<a class="btn buy" href="'+esc(fansbuyUrl(id))+'" target="_blank" rel="noreferrer">🛒 Comprar no FansBuy</a>'+
+            '<button class="btn'+(isFavItem(id)?' on':'')+'" type="button" data-save-item=\''+esc(JSON.stringify({id:String(id),title:(pt.title||it.title||""),price:it.price,pic:images[0]||""}))+'\'>'+(isFavItem(id)?"♥ Salvo":"♡ Salvar")+'</button>'+
             '<button class="btn primary" type="button" id="copyLink">🔗 Copiar link</button>'+
             '<a class="btn" href="'+esc(goofishItem(id))+'#xv-stay" target="_blank" rel="noreferrer">Abrir no Goofish</a>'+
           '</div>'+
@@ -417,7 +489,9 @@
       (note?'<div class="hint" id="reviewNote" style="margin:0 2px 12px">'+note+'</div>':'')+
       '<div id="pane-reviews"></div>'+
       '<div id="pane-listings" class="hidden"></div>'+
-      '<div class="row"><button class="btn" type="button" id="copySeller">🔗 Copiar link do vendedor</button>'+
+      '<div class="row">'+
+      '<button class="btn fav-seller'+(isFavSeller(id)?' on':'')+'" type="button" data-fav-seller=\''+esc(JSON.stringify({id:String(id),name:(s.displayName||"Vendedor"),avatar:s.avatarUrl||""}))+'\'>'+(isFavSeller(id)?"★ Nos favoritos":"☆ Favoritar vendedor")+'</button>'+
+      '<button class="btn" type="button" id="copySeller">🔗 Copiar link do vendedor</button>'+
       '<a class="btn" href="https://www.goofish.com/personal?userId='+esc(id)+'#xv-stay" target="_blank" rel="noreferrer">Abrir no Goofish</a></div>';
 
     function drawReviews(){
@@ -491,7 +565,7 @@
       (ti.itemTitle||r.itemId ? '<a class="bought" '+(r.itemId?'href="?id='+esc(r.itemId)+'" data-nav':'')+'>'+
         (ti.itemPic?'<img src="'+esc(thumb(ti.itemPic,100))+'" referrerpolicy="no-referrer" alt="" />':'')+
         '<div style="min-width:0"><div class="sub" style="margin:0">Comprou:</div>'+tx(pt.itemTitle, ti.itemTitle)+
-        '<div class="sub" style="margin:0">'+(r.itemPrice!=null?'¥'+esc(r.itemPrice):'')+(r.tradeItemSkuInfo?' · '+esc(r.tradeItemSkuInfo):'')+'</div></div></a>' : '')+
+        '<div class="sub" style="margin:0">'+(r.itemPrice!=null?'¥'+esc(r.itemPrice)+' '+brlTag(r.itemPrice):'')+(r.tradeItemSkuInfo?' · '+esc(r.tradeItemSkuInfo):'')+'</div></div></a>' : '')+
     '</div>';
   }
 
@@ -501,7 +575,7 @@
     return '<a class="card lst" href="?id='+esc(l.id)+'" data-nav>'+
       (pic?'<img src="'+esc(pic)+'" referrerpolicy="no-referrer" loading="lazy" alt="" />':'<div style="aspect-ratio:1/1;background:var(--chip)"></div>')+
       '<div class="b"><div class="tt">'+tx(pt.title, l.title)+'</div>'+
-      '<div class="pp">¥'+esc(l.price!=null?l.price:"—")+'</div>'+
+      '<div class="pp">¥'+esc(l.price!=null?l.price:"—")+' '+brlTag(l.price)+'</div>'+
       (l.wantCount?'<div class="sub">❤ '+fmtNum(l.wantCount)+' querem</div>':'')+
       (l.itemStatus && l.itemStatus!=="online"?'<div class="sub">vendido / indisponível</div>':'')+
       '</div></a>';
@@ -517,12 +591,13 @@
       '<a class="card lst" href="?id='+esc(it.id)+'" data-nav>'+
         (it.pic?'<img src="'+esc(thumb(it.pic,400))+'" referrerpolicy="no-referrer" loading="lazy" alt="" />':'<div style="aspect-ratio:1/1;background:var(--chip)"></div>')+
         '<div class="b"><div class="tt">'+tx(pt.title, it.title)+'</div>'+
-        '<div class="pp">¥'+esc(it.price!=null?it.price:"—")+
+        '<div class="pp">¥'+esc(it.price!=null?it.price:"—")+' '+brlTag(it.price)+
           (it.condition?' <span class="pill" style="margin:0 0 0 6px;font-weight:600">'+esc(pt.condition||it.condition)+'</span>':'')+'</div>'+
         (meta.length?'<div class="sub">'+meta.join(" · ")+'</div>':'')+
         (it.freeShipping?'<div class="sub">frete grátis na China</div>':'')+
         '</div></a>'+
       '<button class="copymini" type="button" data-copy="'+esc(goofishItem(it.id))+'" title="Copiar o link do anúncio">🔗 copiar</button>'+
+      '<button class="copymini savemini'+(isFavItem(it.id)?' on':'')+'" type="button" data-save-item=\''+esc(JSON.stringify({id:String(it.id),title:(pt.title||it.title||""),price:it.price,pic:it.pic||""}))+'\' title="'+(isFavItem(it.id)?"Remover dos salvos":"Salvar anúncio")+'">'+(isFavItem(it.id)?"♥":"♡")+'</button>'+
     '</div>';
   }
 
@@ -568,9 +643,76 @@
     else prompt("Copie o link:", text);
   });
 
+  // ---------- favoritos ----------
+  function favItemCard(x){
+    return '<div class="lstwrap">'+
+      '<a class="card lst" href="?id='+esc(x.id)+'" data-nav>'+
+        (x.pic?'<img src="'+esc(thumb(x.pic,400))+'" referrerpolicy="no-referrer" loading="lazy" alt="" />':'<div style="aspect-ratio:1/1;background:var(--chip)"></div>')+
+        '<div class="b"><div class="tt">'+esc(x.title||"(anúncio)")+'</div>'+
+        '<div class="pp">¥'+esc(x.price!=null?x.price:"—")+' '+brlTag(x.price)+'</div>'+
+        '<a class="btn buy" style="margin-top:8px;padding:6px 10px;font-size:13px" href="'+esc(fansbuyUrl(x.id))+'" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">🛒 FansBuy</a>'+
+        '</div></a>'+
+      '<button class="copymini savemini on" type="button" data-save-item=\''+esc(JSON.stringify(x))+'\' title="Remover dos salvos">♥</button>'+
+    '</div>';
+  }
+  function favSellerRow(s){
+    return '<div class="favseller card">'+
+      (s.avatar?'<img class="ava" src="'+esc(thumb(s.avatar,96))+'" referrerpolicy="no-referrer" alt="" />':'<div class="ava">🧑</div>')+
+      '<div style="flex:1;min-width:120px"><div class="who">'+esc(s.name)+'</div><div class="sub">'+esc(s.category)+'</div></div>'+
+      '<a class="btn" href="?seller='+esc(s.id)+'" data-nav>Ver perfil ›</a>'+
+      '<button class="btn" type="button" data-edit-cat="'+esc(s.id)+'">Categoria</button>'+
+      '<button class="btn" type="button" data-remove-seller="'+esc(s.id)+'">Remover</button>'+
+    '</div>';
+  }
+  function renderFavs(){
+    var items=favItems(), sellers=favSellers();
+    var cats={}; sellers.forEach(function(s){ (cats[s.category]=cats[s.category]||[]).push(s); });
+    var html='<div class="shead">⭐ Meus favoritos</div>';
+    html+='<div class="sectitle">Anúncios salvos ('+items.length+')</div>';
+    html+= items.length ? '<div class="grid">'+items.map(favItemCard).join("")+'</div>'
+      : '<div class="empty">Nenhum anúncio salvo. Abra um anúncio e toque em ♡ Salvar (ou no ♡ dos resultados da busca).</div>';
+    html+='<div class="sectitle" style="margin-top:26px">Vendedores confiáveis ('+sellers.length+')</div>';
+    if(!sellers.length) html+='<div class="empty">Nenhum vendedor favoritado. Abra um vendedor e toque em ☆ Favoritar.</div>';
+    else Object.keys(cats).sort().forEach(function(cat){
+      html+='<div class="sub" style="margin:16px 2px 8px;font-weight:700;color:var(--ink)">'+esc(cat)+' ('+cats[cat].length+')</div>';
+      html+='<div class="favsellers">'+cats[cat].map(favSellerRow).join("")+'</div>';
+    });
+    $result.innerHTML=html;
+  }
+
+  // cliques de salvar anúncio / favoritar vendedor / editar categoria (delegado)
+  document.addEventListener("click", function(e){
+    var onFavs = new URL(location.href).searchParams.has("favs");
+    var si=e.target.closest("[data-save-item]");
+    if(si){ e.preventDefault();
+      var obj; try{ obj=JSON.parse(si.getAttribute("data-save-item")); }catch(_){ return; }
+      var nowFav=toggleFavItem(obj);
+      updateFavCount();
+      if(onFavs){ renderFavs(); return; }
+      [].forEach.call(document.querySelectorAll("[data-save-item]"), function(b){
+        try{ if(JSON.parse(b.getAttribute("data-save-item")).id===String(obj.id)) setSaveBtn(b,nowFav); }catch(_){}
+      });
+      return;
+    }
+    var fv=e.target.closest("[data-fav-seller]");
+    if(fv){ e.preventDefault();
+      var o; try{ o=JSON.parse(fv.getAttribute("data-fav-seller")); }catch(_){ return; }
+      if(isFavSeller(o.id)){ removeFavSeller(o.id); setSellerFavBtn(fv,false); }
+      else { var cat=askCategory(); if(cat===null) return; addFavSeller(o,cat); setSellerFavBtn(fv,true); }
+      updateFavCount();
+      return;
+    }
+    var rs=e.target.closest("[data-remove-seller]");
+    if(rs){ e.preventDefault(); removeFavSeller(rs.getAttribute("data-remove-seller")); updateFavCount(); renderFavs(); return; }
+    var ec=e.target.closest("[data-edit-cat]");
+    if(ec){ e.preventDefault(); var sid=ec.getAttribute("data-edit-cat"); var cur=findSeller(sid); if(!cur) return;
+      var c=askCategory(cur.category); if(c!==null){ addFavSeller(cur,c); renderFavs(); } return; }
+  });
+
   // ---------- routing ----------
   function load(q, push){
     if(!q){ clearInterval(timer); load.current=null; $result.innerHTML=""; $status.className="status hidden"; $home.classList.remove("hidden"); document.getElementById("q").value=""; return; }
+    if(q.type==="favs"){ if(push) history.pushState(null,"","?favs"); clearInterval(timer); load.current=null; $status.className="status hidden"; $home.classList.add("hidden"); document.getElementById("q").value=""; renderFavs(); window.scrollTo(0,0); return; }
     $home.classList.add("hidden");
     $result.innerHTML = "";
     var path, shown, what, url;
@@ -595,6 +737,7 @@
   }
   function fromUrl(){
     var p = new URL(location.href).searchParams;
+    if(p.has("favs")) return {type:"favs"};
     if(p.get("seller")) return {type:"seller", id:p.get("seller").replace(/\D/g,""), since:p.get("since")||""};
     if(p.get("id")) return parseQuery("?id="+p.get("id").replace(/\D/g,"")) ;
     if(p.get("q")){
@@ -616,7 +759,8 @@
     if(!a || e.ctrlKey || e.metaKey || e.shiftKey) return;
     e.preventDefault();
     var p = new URL(a.getAttribute("href"), location.href).searchParams;
-    var q = p.get("seller") ? {type:"seller", id:p.get("seller"), since:p.get("since")||""}
+    var q = p.has("favs") ? {type:"favs"}
+          : p.get("seller") ? {type:"seller", id:p.get("seller"), since:p.get("since")||""}
           : p.get("id") ? {type:"item", id:p.get("id")}
           : p.get("q") ? parseQuery(p.get("q")) : null;
     load(q, true);
@@ -628,7 +772,9 @@
     var on = document.body.classList.toggle("show-orig");
     langBtn.textContent = on ? "Só português" : "中文 original";
   });
+  document.getElementById("favsBtn").addEventListener("click", function(){ load({type:"favs"}, true); });
 
+  updateFavCount();
   load(fromUrl(), false);
 })();
 </script>
