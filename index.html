@@ -303,7 +303,8 @@
       specs = '<div class="sectitle">Características</div><dl class="specs">' +
         pt.specs.map(function(s){ return '<dt>'+esc(s.key)+'</dt><dd>'+esc(s.value)+'</dd>'; }).join("") + '</dl>';
     }
-    var sellerHref = it.sellerId ? "?seller="+encodeURIComponent(it.sellerId) : null;
+    // carry the join date to the seller page (the seller scraper doesn't return it)
+    var sellerHref = it.sellerId ? "?seller="+encodeURIComponent(it.sellerId)+(it.sellerSince?"&since="+encodeURIComponent(it.sellerSince):"") : null;
 
     $result.innerHTML =
       '<div class="detail">'+
@@ -362,7 +363,7 @@
                 "Zhima credit":"Crédito Zhima verificado", "Zhima credit verified":"Crédito Zhima verificado",
                 "Xianyu upgraded account":"Conta Xianyu verificada", "Taobao/Xianyu user":"Usuário Taobao/Xianyu" };
 
-  function renderSeller(id, d){
+  function renderSeller(id, d, since){
     var s = d.seller || {}, pt = d.pt || {}, reviews = d.reviews || [], listings = d.listings || [];
     var shop = s.shop || {}, social = s.social || {}, counts = s.counts || {};
     var cb = s.creditBadge;
@@ -394,6 +395,7 @@
           '<h1>'+esc(s.displayName||"Vendedor")+'</h1>'+
           '<div>'+(cb?'<span class="badge">'+tx(pt.creditText, cb.text, "span")+(cb.level?' · nível '+esc(cb.level):'')+'</span>':'')+tags+'</div>'+
           (s.ipProvince?'<div class="sub">📍 '+tx(pt.province, s.ipProvince, "span")+'</div>':'')+
+          (accountAge(since)?'<div class="sub">🗓 '+esc(accountAge(since))+'</div>':'')+
           (s.bio?'<div class="sub" style="color:var(--ink);margin-top:8px">'+tx(pt.bio, s.bio)+'</div>':'')+
           '<div class="kpis">'+
             (shop.praiseRatio!=null?'<div class="kpi"><b>'+esc(shop.praiseRatio)+'%</b><span>avaliações positivas</span></div>':'')+
@@ -575,7 +577,7 @@
     if(q.type==="search"){
       path = "/api/search?"+searchPath(q); url = "?"+searchPath(q); shown = q.q; what = "anúncios";
     } else if(q.type==="seller"){
-      path = "/api/seller?id="+q.id; url = "?seller="+q.id; shown = "https://www.goofish.com/personal?userId="+q.id; what = "o perfil e as avaliações do vendedor";
+      path = "/api/seller?id="+q.id; url = "?seller="+q.id+(q.since?"&since="+encodeURIComponent(q.since):""); shown = "https://www.goofish.com/personal?userId="+q.id; what = "o perfil e as avaliações do vendedor";
     } else {
       path = "/api/item?id="+q.id; url = "?id="+q.id; shown = goofishItem(q.id); what = "o anúncio";
     }
@@ -587,13 +589,13 @@
       if(load.current!==path) return;   // the user navigated away meanwhile
       if(!d || !d.ok){ setStatus(ERRORS[d&&d.error] || "Algo deu errado. Tente de novo em instantes.", true); return; }
       setStatus("", false); $status.className = "status hidden";
-      if(q.type==="search") renderSearch(q, d); else if(q.type==="seller") renderSeller(q.id, d); else renderItem(q.id, d);
+      if(q.type==="search") renderSearch(q, d); else if(q.type==="seller") renderSeller(q.id, d, q.since); else renderItem(q.id, d);
       window.scrollTo(0,0);
     });
   }
   function fromUrl(){
     var p = new URL(location.href).searchParams;
-    if(p.get("seller")) return {type:"seller", id:p.get("seller").replace(/\D/g,"")};
+    if(p.get("seller")) return {type:"seller", id:p.get("seller").replace(/\D/g,""), since:p.get("since")||""};
     if(p.get("id")) return parseQuery("?id="+p.get("id").replace(/\D/g,"")) ;
     if(p.get("q")){
       var q = parseQuery(p.get("q"));
@@ -614,7 +616,7 @@
     if(!a || e.ctrlKey || e.metaKey || e.shiftKey) return;
     e.preventDefault();
     var p = new URL(a.getAttribute("href"), location.href).searchParams;
-    var q = p.get("seller") ? {type:"seller", id:p.get("seller")}
+    var q = p.get("seller") ? {type:"seller", id:p.get("seller"), since:p.get("since")||""}
           : p.get("id") ? {type:"item", id:p.get("id")}
           : p.get("q") ? parseQuery(p.get("q")) : null;
     load(q, true);
