@@ -46,7 +46,9 @@
   .diy-steps b{color:var(--ink)}
   .diy-field{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px;background:var(--bg)}
   .diy-flabel{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px}
-  .diy-flabel .zh{color:var(--ink)}
+  .diy-flabel .zh{color:var(--muted);font-weight:500}
+  .diy-flabel .zh b{color:var(--ink)}
+  .diy-req{display:inline-block;background:var(--price);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:1px}
   .diy-frow{display:flex;gap:8px;align-items:stretch}
   .diy-val{flex:1;min-width:0;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:14px;color:var(--ink);word-break:break-all;line-height:1.4;max-height:92px;overflow:auto}
   .diy-val.num{font-weight:700;font-size:16px}
@@ -426,7 +428,7 @@
           '</a>'+
           '<div class="row">'+
             '<a class="btn buy" href="'+esc(fansbuyUrl(id))+'" target="_blank" rel="noreferrer">'+FANSBUY_ICON+'Comprar no FansBuy</a>'+
-            '<button class="btn buy-alt" type="button" data-diy=\''+esc(JSON.stringify({id:String(id),link:goofishItem(id),zh:(it.title||""),pt:(pt.title||""),price:(it.price!=null?it.price:""),pic:images[0]||""}))+'\'>'+FANSBUY_ICON+'Pedido manual (DIY)</button>'+
+            '<button class="btn buy-alt" type="button" data-diy=\''+esc(JSON.stringify({id:String(id),link:goofishItem(id),zh:(it.title||""),pt:(pt.title||""),price:(it.price!=null?it.price:""),pic:(images[0]?full(images[0]):"")}))+'\'>'+FANSBUY_ICON+'Pedido manual (DIY)</button>'+
             '<button class="btn'+(isFavItem(id)?' on':'')+'" type="button" data-save-item=\''+esc(JSON.stringify({id:String(id),title:(pt.title||it.title||""),price:it.price,pic:images[0]||""}))+'\'>'+(isFavItem(id)?"♥ Salvo":"♡ Salvar")+'</button>'+
             '<button class="btn primary" type="button" id="copyLink">🔗 Copiar link</button>'+
             '<a class="btn" href="'+esc(goofishItem(id))+'#xv-stay" target="_blank" rel="noreferrer">Abrir no Goofish</a>'+
@@ -714,15 +716,18 @@
     var zh = info.zh || "";
     var link = info.link || "";
     var price = (info.price===0||info.price) ? String(info.price) : "";
+    var pic = info.pic || "";
     var remarkZh = "请按此链接下单，数量以我填写的为准，谢谢。"; // "Peço de acordo com este link, quantidade conforme informei, obrigado."
-    function field(label, zhField, value, opts){
+    // label = texto em pt; campo = nome EXATO do campo no formulário do FansBuy
+    function field(label, campo, value, opts){
       opts = opts || {};
       if(value==="" && !opts.keepEmpty) return "";
       var valBox = opts.qty
         ? '<input id="diyQty" class="diy-qty" type="number" min="1" value="'+esc(value||"1")+'" />'
         : '<div class="diy-val'+(opts.num?' num':'')+'">'+esc(value)+'</div>';
       return '<div class="diy-field">'+
-        '<div class="diy-flabel">'+esc(label)+' &nbsp;·&nbsp; <span class="zh">'+esc(zhField)+'</span></div>'+
+        '<div class="diy-flabel">'+esc(label)+(opts.req?' <span class="diy-req">obrigatório</span>':'')+
+          '<br><span class="zh">campo no FansBuy: <b>'+esc(campo)+'</b></span></div>'+
         '<div class="diy-frow">'+valBox+
           '<button class="diy-copy" type="button" data-copy="'+(opts.qty?'__qty__':esc(value))+'">Copiar</button>'+
         '</div>'+
@@ -736,14 +741,16 @@
         '<div class="diy-body">'+
           '<ol class="diy-steps">'+
             '<li>Clique em <b>Abrir o DIY Order</b> e faça login no FansBuy.</li>'+
-            '<li>No formulário, copie cada campo abaixo (botão <b>Copiar</b>) e cole no campo correspondente.</li>'+
-            '<li>Envie. O atendente do FansBuy busca o produto manualmente e confirma o preço.</li>'+
+            '<li>O formulário fica em inglês. Copie cada campo abaixo (botão <b>Copiar</b>) e cole no campo de mesmo nome.</li>'+
+            '<li>Os três campos com <b>obrigatório</b> não podem ficar vazios. Depois é só <b>Add to Cart</b>.</li>'+
           '</ol>'+
-          field("Link do produto", "商品链接 / Product Link", link)+
-          field("Nome do produto", "商品名称 / Product Name", zh, {pt: info.pt? ("Em português: "+info.pt) : "Cole este texto em chinês — é o que o FansBuy entende."})+
-          (function(){ var r=price?brl(Number(price)):""; return field("Preço unitário (¥)", "单价 / Price", price, {num:true, pt: r? ("≈ "+r+" — confirme no FansBuy.") : "Informe o preço em yuan (¥). O FansBuy confirma antes de cobrar."}); })()+
-          field("Quantidade", "数量 / Quantity", "1", {qty:true, keepEmpty:true})+
-          field("Observação (opcional)", "备注 / Remark", remarkZh, {pt:"Recado em chinês pro atendente. Ajuste se quiser cor/tamanho específico."})+
+          field("Link do produto", "Item URL", link, {req:true})+
+          field("Título do produto", "Item Title", (zh||info.pt||""), {req:true, pt: (zh&&info.pt)? ("Em português: "+info.pt+" — pode colar o chinês ou o português, o que vale é o link acima.") : "Pode colar o nome em chinês ou português — o que o atendente usa é o link acima."})+
+          field("Link da imagem", "Picture link", pic, {req:true, pt:"Cole no campo Picture link. Se o FansBuy recusar o link, baixe a foto do anúncio e use o botão de enviar imagem (↑) logo abaixo desse campo."})+
+          field("Observação (opcional)", "Remark", remarkZh, {pt:"Recado em chinês pro atendente. Ajuste se quiser cor/tamanho específico."})+
+          (function(){ var r=price?brl(Number(price)):""; return field("Preço (¥)", "Price (CNY)", price, {num:true, pt: r? ("≈ "+r+" — o FansBuy confirma o preço real antes de cobrar.") : "Preço em yuan (¥). O FansBuy confirma antes de cobrar."}); })()+
+          field("Quantidade", "Quantity", "1", {qty:true, keepEmpty:true})+
+          '<div class="diy-note"><b>Domestic Shipping (CNY):</b> pode deixar como está (1) — é o frete interno na China, o FansBuy calcula o valor real depois.</div>'+
           '<a class="diy-open" href="'+esc(FANSBUY_DIY)+'" target="_blank" rel="noreferrer" data-diy-open>Abrir o DIY Order do FansBuy ›</a>'+
           '<div class="diy-note">O DIY Order exige login no FansBuy e, por ser manual, demora mais que a compra automática. O FansBuy confirma preço e disponibilidade antes de cobrar.</div>'+
         '</div>'+
