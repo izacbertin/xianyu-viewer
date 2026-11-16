@@ -117,6 +117,7 @@
   .price-brl .brl{color:var(--price);font-weight:700}
   .pp .brl{font-size:.9em;margin-left:4px;color:var(--ink)}
   .btn.buy{background:var(--price);border-color:var(--price);color:#fff;font-weight:700}
+  .btn.buy-alt{border-color:var(--price);color:var(--price);font-weight:700}
   .btn.on{background:var(--xy-yellow);border-color:var(--xy-yellow-deep);color:#1a1a1a;font-weight:700}
   .savemini{right:auto;left:8px;font-size:15px;line-height:1}
   .savemini.on{background:var(--price)}
@@ -243,6 +244,7 @@
   // ---------- FansBuy ----------
   function fansbuyUrl(id){ return "https://fansbuy.com/item-xianyu-"+encodeURIComponent(id)+".html?url="+encodeURIComponent(goofishItem(id)); }
   var FANSBUY_ICON = '<img src="https://fansbuy.com/favicon.ico" width="16" height="16" style="vertical-align:-3px;border-radius:3px;margin-right:6px" alt="" />';
+  var FANSBUY_DIY = "https://fansbuy.com/fillbuy";   // pedido manual (exige login)
 
   // ---------- favoritos (guardados só neste navegador) ----------
   function lsGet(k){ try{ return JSON.parse(localStorage.getItem(k)||"[]")||[]; }catch(e){ return []; } }
@@ -403,10 +405,12 @@
           '</a>'+
           '<div class="row">'+
             '<a class="btn buy" href="'+esc(fansbuyUrl(id))+'" target="_blank" rel="noreferrer">'+FANSBUY_ICON+'Comprar no FansBuy</a>'+
+            '<button class="btn buy-alt" type="button" data-diy="'+esc(id)+'">'+FANSBUY_ICON+'Pedido manual (DIY)</button>'+
             '<button class="btn'+(isFavItem(id)?' on':'')+'" type="button" data-save-item=\''+esc(JSON.stringify({id:String(id),title:(pt.title||it.title||""),price:it.price,pic:images[0]||""}))+'\'>'+(isFavItem(id)?"♥ Salvo":"♡ Salvar")+'</button>'+
             '<button class="btn primary" type="button" id="copyLink">🔗 Copiar link</button>'+
             '<a class="btn" href="'+esc(goofishItem(id))+'#xv-stay" target="_blank" rel="noreferrer">Abrir no Goofish</a>'+
           '</div>'+
+          '<div class="hint" style="margin-top:8px">Se o FansBuy mostrar erro ao abrir o produto (bloqueio do Xianyu), use o <b>Pedido manual</b>: ele abre o DIY Order do FansBuy e copia o link do anúncio. Lá você cola o link e informa o preço'+(it.price!=null?' <b>¥'+esc(it.price)+'</b>':'')+' e a quantidade.</div>'+
           specs+
           (it.description?'<div class="sectitle">Descrição do vendedor</div><div class="desc">'+tx(pt.description, it.description)+'</div>':'')+
         '</div>'+
@@ -684,6 +688,15 @@
 
   // cliques de salvar anúncio / favoritar vendedor / editar categoria (delegado)
   document.addEventListener("click", function(e){
+    var diy=e.target.closest("[data-diy]");
+    if(diy){ e.preventDefault();
+      var link=goofishItem(diy.getAttribute("data-diy"));
+      var open=function(){ window.open(FANSBUY_DIY, "_blank", "noopener"); };
+      var mark=function(){ var o=diy.innerHTML; diy.innerHTML="✓ Link copiado — cole no DIY"; setTimeout(function(){ diy.innerHTML=o; },2500); };
+      if(navigator.clipboard) navigator.clipboard.writeText(link).then(function(){mark();open();}, function(){ prompt("Copie o link do anúncio:", link); open(); });
+      else { prompt("Copie o link do anúncio:", link); open(); }
+      return;
+    }
     var onFavs = new URL(location.href).searchParams.has("favs");
     var si=e.target.closest("[data-save-item]");
     if(si){ e.preventDefault();
