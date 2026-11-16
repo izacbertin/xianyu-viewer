@@ -744,7 +744,7 @@
           (function(){ var r=price?brl(Number(price)):""; return field("Preço unitário (¥)", "单价 / Price", price, {num:true, pt: r? ("≈ "+r+" — confirme no FansBuy.") : "Informe o preço em yuan (¥). O FansBuy confirma antes de cobrar."}); })()+
           field("Quantidade", "数量 / Quantity", "1", {qty:true, keepEmpty:true})+
           field("Observação (opcional)", "备注 / Remark", remarkZh, {pt:"Recado em chinês pro atendente. Ajuste se quiser cor/tamanho específico."})+
-          '<a class="diy-open" href="'+esc(FANSBUY_DIY)+'" target="_blank" rel="noreferrer" data-diy-close>Abrir o DIY Order do FansBuy ›</a>'+
+          '<a class="diy-open" href="'+esc(FANSBUY_DIY)+'" target="_blank" rel="noreferrer" data-diy-open>Abrir o DIY Order do FansBuy ›</a>'+
           '<div class="diy-note">O DIY Order exige login no FansBuy e, por ser manual, demora mais que a compra automática. O FansBuy confirma preço e disponibilidade antes de cobrar.</div>'+
         '</div>'+
       '</div>';
@@ -771,6 +771,8 @@
       else { prompt("Copie:", val); done(); }
       return;
     }
+    var dopen=e.target.closest("[data-diy-open]");
+    if(dopen){ /* é um link <a> real: deixa abrir a aba do FansBuy e mantém a janela aberta pra copiar os campos */ return; }
     if(e.target.closest("[data-diy-close]")){ e.preventDefault(); var b=document.getElementById("diyBack"); if(b) b.remove(); return; }
     var onFavs = new URL(location.href).searchParams.has("favs");
     var si=e.target.closest("[data-save-item]");
