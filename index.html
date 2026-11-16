@@ -113,8 +113,9 @@
   .suggest{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
   .suggest a{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:7px 14px;font-size:14px;text-decoration:none}
   .brl{color:var(--muted);font-weight:400}
-  .price .brl{font-size:.42em;vertical-align:7px;margin-left:8px}
-  .pp .brl{font-size:.85em;margin-left:4px}
+  .price-brl{font-size:22px;font-weight:700;color:var(--price);margin:6px 0 2px}
+  .price-brl .brl{color:var(--price);font-weight:700}
+  .pp .brl{font-size:.9em;margin-left:4px;color:var(--ink)}
   .btn.buy{background:var(--price);border-color:var(--price);color:#fff;font-weight:700}
   .btn.on{background:var(--xy-yellow);border-color:var(--xy-yellow-deep);color:#1a1a1a;font-weight:700}
   .savemini{right:auto;left:8px;font-size:15px;line-height:1}
@@ -241,6 +242,7 @@
 
   // ---------- FansBuy ----------
   function fansbuyUrl(id){ return "https://fansbuy.com/item-xianyu-"+encodeURIComponent(id)+".html?url="+encodeURIComponent(goofishItem(id)); }
+  var FANSBUY_ICON = '<img src="https://fansbuy.com/favicon.ico" width="16" height="16" style="vertical-align:-3px;border-radius:3px;margin-right:6px" alt="" />';
 
   // ---------- favoritos (guardados só neste navegador) ----------
   function lsGet(k){ try{ return JSON.parse(localStorage.getItem(k)||"[]")||[]; }catch(e){ return []; } }
@@ -384,10 +386,10 @@
         '<div>'+
           '<div class="price"><span class="cur">¥</span><span class="val">'+esc(it.price!=null?it.price:"—")+'</span>'+
             (Number(it.originalPrice) > Number(it.price) ? '<s class="orig">¥'+esc(it.originalPrice)+'</s>' : '')+
-            (it.price!=null ? brlTag(it.price) : '')+
             (pt.condition ? '<span class="pill">'+esc(pt.condition)+'</span>' : '')+
             (it.freeShipping ? '<span class="pill">frete grátis na China</span>' : '')+
           '</div>'+
+          (it.price!=null ? '<div class="price-brl">'+brlTag(it.price)+'</div>' : '')+
           '<div class="title">'+tx(pt.title, it.title)+'</div>'+
           (stats.length?'<div class="stats">'+stats.map(function(s){return "<span>"+s+"</span>";}).join("")+'</div>':'')+
           '<a class="card seller" '+(sellerHref?'href="'+sellerHref+'" data-nav':'')+' style="text-decoration:none">'+
@@ -400,7 +402,7 @@
             (sellerHref?'<span class="btn primary" style="white-space:nowrap">Ver perfil e avaliações ›</span>':'')+
           '</a>'+
           '<div class="row">'+
-            '<a class="btn buy" href="'+esc(fansbuyUrl(id))+'" target="_blank" rel="noreferrer">🛒 Comprar no FansBuy</a>'+
+            '<a class="btn buy" href="'+esc(fansbuyUrl(id))+'" target="_blank" rel="noreferrer">'+FANSBUY_ICON+'Comprar no FansBuy</a>'+
             '<button class="btn'+(isFavItem(id)?' on':'')+'" type="button" data-save-item=\''+esc(JSON.stringify({id:String(id),title:(pt.title||it.title||""),price:it.price,pic:images[0]||""}))+'\'>'+(isFavItem(id)?"♥ Salvo":"♡ Salvar")+'</button>'+
             '<button class="btn primary" type="button" id="copyLink">🔗 Copiar link</button>'+
             '<a class="btn" href="'+esc(goofishItem(id))+'#xv-stay" target="_blank" rel="noreferrer">Abrir no Goofish</a>'+
@@ -650,7 +652,7 @@
         (x.pic?'<img src="'+esc(thumb(x.pic,400))+'" referrerpolicy="no-referrer" loading="lazy" alt="" />':'<div style="aspect-ratio:1/1;background:var(--chip)"></div>')+
         '<div class="b"><div class="tt">'+esc(x.title||"(anúncio)")+'</div>'+
         '<div class="pp">¥'+esc(x.price!=null?x.price:"—")+' '+brlTag(x.price)+'</div>'+
-        '<a class="btn buy" style="margin-top:8px;padding:6px 10px;font-size:13px" href="'+esc(fansbuyUrl(x.id))+'" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">🛒 FansBuy</a>'+
+        '<a class="btn buy" style="margin-top:8px;padding:6px 10px;font-size:13px" href="'+esc(fansbuyUrl(x.id))+'" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">'+FANSBUY_ICON+'FansBuy</a>'+
         '</div></a>'+
       '<button class="copymini savemini on" type="button" data-save-item=\''+esc(JSON.stringify(x))+'\' title="Remover dos salvos">♥</button>'+
     '</div>';
