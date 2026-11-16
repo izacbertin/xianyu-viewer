@@ -35,6 +35,27 @@
   .spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--muted);border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-3px;margin-right:8px}
   @keyframes spin{to{transform:rotate(360deg)}}
   .hidden{display:none !important}
+  /* assistente de pedido manual (DIY) */
+  .diy-back{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:24px 14px;overflow:auto}
+  .diy-card{background:var(--card);color:var(--ink);border-radius:16px;max-width:620px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.4);overflow:hidden}
+  .diy-head{background:var(--price);color:#fff;padding:14px 18px;display:flex;align-items:center;gap:10px}
+  .diy-head h3{margin:0;font-size:17px;font-weight:800;flex:1}
+  .diy-x{background:rgba(255,255,255,.25);border:0;color:#fff;width:30px;height:30px;border-radius:50%;font-size:18px;cursor:pointer;line-height:1}
+  .diy-body{padding:16px 18px}
+  .diy-steps{margin:0 0 14px;padding-left:20px;color:var(--muted);font-size:13.5px;line-height:1.6}
+  .diy-steps b{color:var(--ink)}
+  .diy-field{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px;background:var(--bg)}
+  .diy-flabel{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px}
+  .diy-flabel .zh{color:var(--ink)}
+  .diy-frow{display:flex;gap:8px;align-items:stretch}
+  .diy-val{flex:1;min-width:0;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:14px;color:var(--ink);word-break:break-all;line-height:1.4;max-height:92px;overflow:auto}
+  .diy-val.num{font-weight:700;font-size:16px}
+  .diy-qty{width:70px;flex:0 0 auto;text-align:center;font-weight:700;font-size:16px;background:var(--card);border:1px solid var(--line);border-radius:8px;color:var(--ink)}
+  .diy-copy{flex:0 0 auto;border:0;background:var(--ink);color:var(--card);font-weight:700;border-radius:8px;padding:0 14px;cursor:pointer;font-size:13px;white-space:nowrap}
+  .diy-copy.done{background:var(--good);color:#fff}
+  .diy-pt{font-size:12px;color:var(--muted);margin-top:6px}
+  .diy-open{display:block;width:100%;text-align:center;background:var(--price);color:#fff;font-weight:800;border:0;border-radius:12px;padding:13px;margin-top:6px;cursor:pointer;font-size:15px;text-decoration:none}
+  .diy-note{font-size:12.5px;color:var(--muted);margin-top:10px;line-height:1.5}
 
   /* translation toggle: Portuguese by default, original on demand */
   .t-zh{display:none}
@@ -405,12 +426,12 @@
           '</a>'+
           '<div class="row">'+
             '<a class="btn buy" href="'+esc(fansbuyUrl(id))+'" target="_blank" rel="noreferrer">'+FANSBUY_ICON+'Comprar no FansBuy</a>'+
-            '<button class="btn buy-alt" type="button" data-diy="'+esc(id)+'">'+FANSBUY_ICON+'Pedido manual (DIY)</button>'+
+            '<button class="btn buy-alt" type="button" data-diy=\''+esc(JSON.stringify({id:String(id),link:goofishItem(id),zh:(it.title||""),pt:(pt.title||""),price:(it.price!=null?it.price:""),pic:images[0]||""}))+'\'>'+FANSBUY_ICON+'Pedido manual (DIY)</button>'+
             '<button class="btn'+(isFavItem(id)?' on':'')+'" type="button" data-save-item=\''+esc(JSON.stringify({id:String(id),title:(pt.title||it.title||""),price:it.price,pic:images[0]||""}))+'\'>'+(isFavItem(id)?"♥ Salvo":"♡ Salvar")+'</button>'+
             '<button class="btn primary" type="button" id="copyLink">🔗 Copiar link</button>'+
             '<a class="btn" href="'+esc(goofishItem(id))+'#xv-stay" target="_blank" rel="noreferrer">Abrir no Goofish</a>'+
           '</div>'+
-          '<div class="hint" style="margin-top:8px">Se o FansBuy mostrar erro ao abrir o produto (bloqueio do Xianyu), use o <b>Pedido manual</b>: ele abre o DIY Order do FansBuy e copia o link do anúncio. Lá você cola o link e informa o preço'+(it.price!=null?' <b>¥'+esc(it.price)+'</b>':'')+' e a quantidade.</div>'+
+          '<div class="hint" style="margin-top:8px">Se o FansBuy mostrar erro ao abrir o produto (bloqueio do Xianyu), use o <b>Pedido manual</b>: abre uma janela com cada campo do formulário do FansBuy explicado em português e o valor pronto em chinês/número pra você copiar e colar.</div>'+
           specs+
           (it.description?'<div class="sectitle">Descrição do vendedor</div><div class="desc">'+tx(pt.description, it.description)+'</div>':'')+
         '</div>'+
@@ -686,17 +707,71 @@
     $result.innerHTML=html;
   }
 
+  // janela "assistente" do pedido manual (DIY): cada campo do FansBuy em pt + valor pronto pra copiar
+  function openDiyModal(info){
+    info = info || {};
+    var old=document.getElementById("diyBack"); if(old) old.remove();
+    var zh = info.zh || "";
+    var link = info.link || "";
+    var price = (info.price===0||info.price) ? String(info.price) : "";
+    var remarkZh = "请按此链接下单，数量以我填写的为准，谢谢。"; // "Peço de acordo com este link, quantidade conforme informei, obrigado."
+    function field(label, zhField, value, opts){
+      opts = opts || {};
+      if(value==="" && !opts.keepEmpty) return "";
+      var valBox = opts.qty
+        ? '<input id="diyQty" class="diy-qty" type="number" min="1" value="'+esc(value||"1")+'" />'
+        : '<div class="diy-val'+(opts.num?' num':'')+'">'+esc(value)+'</div>';
+      return '<div class="diy-field">'+
+        '<div class="diy-flabel">'+esc(label)+' &nbsp;·&nbsp; <span class="zh">'+esc(zhField)+'</span></div>'+
+        '<div class="diy-frow">'+valBox+
+          '<button class="diy-copy" type="button" data-copy="'+(opts.qty?'__qty__':esc(value))+'">Copiar</button>'+
+        '</div>'+
+        (opts.pt?'<div class="diy-pt">'+esc(opts.pt)+'</div>':'')+
+      '</div>';
+    }
+    var html =
+      '<div class="diy-card" role="dialog" aria-modal="true">'+
+        '<div class="diy-head">'+FANSBUY_ICON+'<h3>Pedido manual no FansBuy</h3>'+
+          '<button class="diy-x" type="button" data-diy-close aria-label="Fechar">×</button></div>'+
+        '<div class="diy-body">'+
+          '<ol class="diy-steps">'+
+            '<li>Clique em <b>Abrir o DIY Order</b> e faça login no FansBuy.</li>'+
+            '<li>No formulário, copie cada campo abaixo (botão <b>Copiar</b>) e cole no campo correspondente.</li>'+
+            '<li>Envie. O atendente do FansBuy busca o produto manualmente e confirma o preço.</li>'+
+          '</ol>'+
+          field("Link do produto", "商品链接 / Product Link", link)+
+          field("Nome do produto", "商品名称 / Product Name", zh, {pt: info.pt? ("Em português: "+info.pt) : "Cole este texto em chinês — é o que o FansBuy entende."})+
+          (function(){ var r=price?brl(Number(price)):""; return field("Preço unitário (¥)", "单价 / Price", price, {num:true, pt: r? ("≈ "+r+" — confirme no FansBuy.") : "Informe o preço em yuan (¥). O FansBuy confirma antes de cobrar."}); })()+
+          field("Quantidade", "数量 / Quantity", "1", {qty:true, keepEmpty:true})+
+          field("Observação (opcional)", "备注 / Remark", remarkZh, {pt:"Recado em chinês pro atendente. Ajuste se quiser cor/tamanho específico."})+
+          '<a class="diy-open" href="'+esc(FANSBUY_DIY)+'" target="_blank" rel="noreferrer" data-diy-close>Abrir o DIY Order do FansBuy ›</a>'+
+          '<div class="diy-note">O DIY Order exige login no FansBuy e, por ser manual, demora mais que a compra automática. O FansBuy confirma preço e disponibilidade antes de cobrar.</div>'+
+        '</div>'+
+      '</div>';
+    var back=document.createElement("div");
+    back.id="diyBack"; back.className="diy-back"; back.innerHTML=html;
+    back.addEventListener("click", function(ev){ if(ev.target===back) back.remove(); });
+    document.body.appendChild(back);
+  }
+  document.addEventListener("keydown", function(e){ if(e.key==="Escape"){ var b=document.getElementById("diyBack"); if(b) b.remove(); } });
+
   // cliques de salvar anúncio / favoritar vendedor / editar categoria (delegado)
   document.addEventListener("click", function(e){
     var diy=e.target.closest("[data-diy]");
     if(diy){ e.preventDefault();
-      var link=goofishItem(diy.getAttribute("data-diy"));
-      var open=function(){ window.open(FANSBUY_DIY, "_blank", "noopener"); };
-      var mark=function(){ var o=diy.innerHTML; diy.innerHTML="✓ Link copiado — cole no DIY"; setTimeout(function(){ diy.innerHTML=o; },2500); };
-      if(navigator.clipboard) navigator.clipboard.writeText(link).then(function(){mark();open();}, function(){ prompt("Copie o link do anúncio:", link); open(); });
-      else { prompt("Copie o link do anúncio:", link); open(); }
+      var info; try{ info=JSON.parse(diy.getAttribute("data-diy")); }catch(_){ info={link:goofishItem(diy.getAttribute("data-diy"))}; }
+      openDiyModal(info);
       return;
     }
+    var dc=e.target.closest("[data-copy]");
+    if(dc){ e.preventDefault();
+      var val=dc.getAttribute("data-copy")==="__qty__" ? (document.getElementById("diyQty")||{}).value||"1" : dc.getAttribute("data-copy");
+      var done=function(){ var o=dc.textContent; dc.textContent="Copiado ✓"; dc.classList.add("done"); setTimeout(function(){ dc.textContent=o; dc.classList.remove("done"); },1600); };
+      if(navigator.clipboard) navigator.clipboard.writeText(val).then(done, function(){ prompt("Copie:", val); });
+      else { prompt("Copie:", val); done(); }
+      return;
+    }
+    if(e.target.closest("[data-diy-close]")){ e.preventDefault(); var b=document.getElementById("diyBack"); if(b) b.remove(); return; }
     var onFavs = new URL(location.href).searchParams.has("favs");
     var si=e.target.closest("[data-save-item]");
     if(si){ e.preventDefault();
