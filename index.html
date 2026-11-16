@@ -447,6 +447,9 @@
       t.classList.add("active");
     });
     copyButton(document.getElementById("copyLink"), goofishItem(id));
+    // alimenta o pool e mostra sugestões (estilo Xianyu) a partir do que você já viu/pesquisou
+    try{ addSeen([{id:String(id), title:it.title||"", pt:{title:pt.title||"", condition:pt.condition||""}, price:it.price, pic:images[0]||"", wantCount:it.wantCount}]); }catch(_){}
+    renderSuggestions({id:id, title:it.title, pt:{title:pt.title}});
   }
 
   function copyButton(btn, text){
@@ -630,8 +633,46 @@
     '</div>';
   }
 
+  // ---------- sugestões estilo Xianyu (a partir do que você já pesquisou — sem custo extra de Apify) ----------
+  var SEEN_KEY="xv.seen", SEEN_MAX=90;
+  function seenPool(){ try{ var a=JSON.parse(localStorage.getItem(SEEN_KEY)||"[]"); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+  function normSeen(it){
+    if(!it||it.id==null) return null;
+    var p=it.pt||{};
+    return { id:String(it.id), title:it.title||"", pt:{title:p.title||"", condition:p.condition||it.condition||"", area:p.area||it.area||""},
+      price:(it.price!=null?it.price:null), pic:it.pic||"", condition:it.condition||"", area:it.area||"", wantCount:it.wantCount||0, freeShipping:!!it.freeShipping };
+  }
+  function addSeen(items){
+    if(!items||!items.length) return;
+    var add=[]; items.forEach(function(it){ var n=normSeen(it); if(n&&n.pic) add.push(n); });
+    if(!add.length) return;
+    var newIds={}; add.forEach(function(x){ newIds[x.id]=true; });
+    var merged=add.concat(seenPool().filter(function(x){ return !newIds[x.id]; }));
+    try{ localStorage.setItem(SEEN_KEY, JSON.stringify(merged.slice(0,SEEN_MAX))); }catch(e){}
+  }
+  function suggTokens(s){ return (s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9一-鿿]+/g," ").split(" ").filter(function(w){ return w.length>=2; }); }
+  function suggestFor(cur, n){
+    var pool=seenPool(), curId=String(cur.id), toks={};
+    suggTokens((cur.pt&&cur.pt.title)||"").concat(suggTokens(cur.title||"")).forEach(function(t){ toks[t]=true; });
+    return pool.filter(function(x){ return String(x.id)!==curId; })
+      .map(function(x,i){ var s=0; suggTokens((x.pt&&x.pt.title)||x.title||"").forEach(function(t){ if(toks[t]) s++; }); return {it:x, score:s, i:i}; })
+      .sort(function(a,b){ return (b.score-a.score) || (a.i-b.i); })
+      .slice(0, n||12).map(function(o){ return o.it; });
+  }
+  function renderSuggestions(cur){
+    var sug=suggestFor(cur, 12);
+    var kw=(((cur.pt&&cur.pt.title)||cur.title||"").split(/\s+/).filter(Boolean).slice(0,3).join(" ")).trim();
+    var sec=document.createElement("div");
+    sec.innerHTML='<div class="sectitle" style="margin-top:30px">Você também pode gostar</div>'+
+      (sug.length ? '<div class="grid">'+sug.map(searchCard).join("")+'</div>'
+        : '<div class="empty">As sugestões aparecem aqui conforme você pesquisa. Faça uma busca e volte — usamos os anúncios que você já viu, sem custo extra.</div>')+
+      (kw ? '<div class="row" style="justify-content:center;margin:16px 0"><a class="btn primary" href="?q='+encodeURIComponent(kw)+'" data-nav>🔎 Buscar parecidos no Xianyu</a></div>' : '');
+    $result.appendChild(sec);
+  }
+
   function renderSearch(q, d){
     var items = d.items || [], query = d.query || {};
+    addSeen(items);
     var usedZh = query.zh && query.zh !== query.q;
     $result.innerHTML =
       '<div class="shead">'+(items.length ? items.length+' anúncios para “'+esc(query.q||q.q)+'”' : 'Nenhum anúncio para “'+esc(query.q||q.q)+'”')+'</div>'+
