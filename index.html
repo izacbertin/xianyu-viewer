@@ -49,6 +49,13 @@
   .diy-flabel .zh{color:var(--muted);font-weight:500}
   .diy-flabel .zh b{color:var(--ink)}
   .diy-req{display:inline-block;background:var(--price);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:1px}
+  /* anúncio vendido/esgotado */
+  .soldban{background:rgba(224,56,62,.12);border:1px solid var(--bad);color:var(--bad);border-radius:12px;padding:10px 14px;margin:0 0 12px;font-size:15px;display:flex;flex-direction:column;gap:3px}
+  .soldban b{font-size:16px}
+  .soldban span{color:var(--ink);opacity:.8;font-size:13px}
+  .picwrap{position:relative}
+  .sold-tag{position:absolute;top:8px;left:8px;background:var(--bad);color:#fff;font-size:12px;font-weight:700;padding:3px 9px;border-radius:7px;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+  .soldcard .card.lst img{filter:grayscale(.7);opacity:.72}
   .diy-frow{display:flex;gap:8px;align-items:stretch}
   .diy-val{flex:1;min-width:0;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:14px;color:var(--ink);word-break:break-all;line-height:1.4;max-height:92px;overflow:auto}
   .diy-val.num{font-weight:700;font-size:16px}
@@ -377,6 +384,7 @@
   // ---------- item page ----------
   function renderItem(id, d){
     var it = d.item || {}, pt = d.pt || {};
+    var av = d.availability || {active:true};
     var images = (Array.isArray(it.images)?it.images:[]).map(img).filter(Boolean);
     var gal = esc(JSON.stringify(images.map(full)));
     var stats = [];
@@ -409,7 +417,8 @@
           (images.length>1 ? '<div class="thumbs" id="thumbs">'+images.map(function(u,i){ return '<img src="'+esc(thumb(u,200))+'" data-full="'+esc(full(u))+'" data-idx="'+i+'" class="'+(i===0?"active":"")+'" referrerpolicy="no-referrer" alt="" />'; }).join("")+'</div>' : '')+
         '</div>'+
         '<div>'+
-          '<div class="price"><span class="cur">¥</span><span class="val">'+esc(it.price!=null?it.price:"—")+'</span>'+
+          (!av.active ? '<div class="soldban">🔴 <b>'+esc(av.statusPt||"Indisponível no Xianyu")+'</b><span>Este anúncio não está mais à venda no Xianyu'+(av.statusZh?' (status: '+esc(av.statusZh)+')':'')+'. Pode ser um produto que você já comprou.</span></div>' : '')+
+          '<div class="price"'+(!av.active?' style="opacity:.55"':'')+'><span class="cur">¥</span><span class="val">'+esc(it.price!=null?it.price:"—")+'</span>'+
             (Number(it.originalPrice) > Number(it.price) ? '<s class="orig">¥'+esc(it.originalPrice)+'</s>' : '')+
             (pt.condition ? '<span class="pill">'+esc(pt.condition)+'</span>' : '')+
             (it.freeShipping ? '<span class="pill">frete grátis na China</span>' : '')+
@@ -448,7 +457,7 @@
     });
     copyButton(document.getElementById("copyLink"), goofishItem(id));
     // alimenta o pool e mostra sugestões (estilo Xianyu) a partir do que você já viu/pesquisou
-    try{ addSeen([{id:String(id), title:it.title||"", pt:{title:pt.title||"", condition:pt.condition||""}, price:it.price, pic:images[0]||"", wantCount:it.wantCount}]); }catch(_){}
+    try{ addSeen([{id:String(id), title:it.title||"", pt:{title:pt.title||"", condition:pt.condition||""}, price:it.price, pic:images[0]||"", wantCount:it.wantCount, soldOut:!av.active}]); }catch(_){}
     renderSuggestions({id:id, title:it.title, pt:{title:pt.title}});
   }
 
@@ -619,9 +628,12 @@
     var meta = [];
     if(it.area) meta.push(tx(pt.area, it.area, "span"));
     if(it.wantCount) meta.push("❤ "+fmtNum(it.wantCount));
-    return '<div class="lstwrap">'+
+    return '<div class="lstwrap'+(it.soldOut?' soldcard':'')+'">'+
       '<a class="card lst" href="?id='+esc(it.id)+'" data-nav>'+
+        '<div class="picwrap">'+
         (it.pic?'<img src="'+esc(thumb(it.pic,400))+'" referrerpolicy="no-referrer" loading="lazy" alt="" />':'<div style="aspect-ratio:1/1;background:var(--chip)"></div>')+
+        (it.soldOut?'<span class="sold-tag">Esgotado</span>':'')+
+        '</div>'+
         '<div class="b"><div class="tt">'+tx(pt.title, it.title)+'</div>'+
         '<div class="pp">¥'+esc(it.price!=null?it.price:"—")+' '+brlTag(it.price)+
           (it.condition?' <span class="pill" style="margin:0 0 0 6px;font-weight:600">'+esc(pt.condition||it.condition)+'</span>':'')+'</div>'+
@@ -640,7 +652,7 @@
     if(!it||it.id==null) return null;
     var p=it.pt||{};
     return { id:String(it.id), title:it.title||"", pt:{title:p.title||"", condition:p.condition||it.condition||"", area:p.area||it.area||""},
-      price:(it.price!=null?it.price:null), pic:it.pic||"", condition:it.condition||"", area:it.area||"", wantCount:it.wantCount||0, freeShipping:!!it.freeShipping };
+      price:(it.price!=null?it.price:null), pic:it.pic||"", condition:it.condition||"", area:it.area||"", wantCount:it.wantCount||0, freeShipping:!!it.freeShipping, soldOut:!!it.soldOut };
   }
   function addSeen(items){
     if(!items||!items.length) return;

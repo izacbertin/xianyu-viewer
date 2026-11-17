@@ -19,7 +19,7 @@ const LLM_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 const FALLBACK_MODEL = "@cf/meta/m2m100-1.2b";
 
 // Every answer is kept in Workers KV (CACHE binding), so the same query is paid to Apify only once per period.
-const CACHE_VERSION = "v6";
+const CACHE_VERSION = "v7";
 const CACHE_SECONDS = {
   item: 24 * 3600,
   seller: 3 * 24 * 3600,
@@ -47,6 +47,30 @@ const CONDITION_PT = {
   "heavily used": "Muito usado",
   "for parts": "Para peças",
 };
+
+// Status do anúncio no Xianyu. Ativo = continua à venda; o resto vira aviso na tela.
+const ITEM_STATUS_ACTIVE = /在线|在售|出售中|正常|^(online|on ?sale|selling|available|active)$/i;
+const ITEM_STATUS_PT = {
+  "已售": "Vendido", "已售出": "Vendido", "售出": "Vendido", "已卖出": "Vendido",
+  "卖掉了": "Vendido", "已卖掉": "Vendido", "卖掉": "Vendido", "已成交": "Vendido", "成交": "Vendido",
+  "交易中": "Em negociação (alguém está comprando)", "已锁定": "Reservado (travado para outro comprador)",
+  "锁定": "Reservado (travado para outro comprador)",
+  "已下架": "Removido pelo vendedor", "下架": "Removido pelo vendedor", "已删除": "Anúncio apagado",
+  "已结束": "Encerrado", "过期": "Expirado", "已过期": "Expirado",
+  "sold": "Vendido", "sold out": "Esgotado", "off shelf": "Removido pelo vendedor",
+  "removed": "Removido pelo vendedor", "deleted": "Anúncio apagado", "expired": "Expirado",
+};
+function itemAvailability(item) {
+  const raw = (item && item.status != null ? String(item.status) : "").trim();
+  const qty = item && item.quantity != null ? Number(item.quantity) : null;
+  // ativo quando o status diz que está à venda; se não houver status, assume ativo
+  let active = raw ? ITEM_STATUS_ACTIVE.test(raw) : true;
+  // quantidade 0 (com status ativo) também conta como esgotado
+  if (active && qty === 0) active = false;
+  let statusPt = null;
+  if (!active) statusPt = ITEM_STATUS_PT[raw] || ITEM_STATUS_PT[raw.toLowerCase()] || (qty === 0 ? "Esgotado" : "Indisponível no Xianyu");
+  return { active, statusZh: raw || null, statusPt };
+}
 
 export default {
   async fetch(request, env, ctx) {
@@ -247,6 +271,7 @@ async function getItem(env, id) {
     ok: true,
     fetchedAt: new Date().toISOString(),
     item,
+    availability: itemAvailability(item),
     pt: {
       title: tr[0],
       description: tr[1],
@@ -342,6 +367,7 @@ function normalizeSearchItem(r) {
     condition: r.condition || r.conditionText || null,
     freeShipping: r.freeShipping === true,
     postedAt: r.publishTime || r.postedAt || r.publishedAt || r.listedAt || null,
+    soldOut: (function(){ var s = r.status != null ? String(r.status).trim() : ""; return s ? !ITEM_STATUS_ACTIVE.test(s) : false; })(),
   };
 }
 
