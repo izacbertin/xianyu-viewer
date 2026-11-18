@@ -60,6 +60,27 @@ const ITEM_STATUS_PT = {
   "sold": "Vendido", "sold out": "Esgotado", "off shelf": "Removido pelo vendedor",
   "removed": "Removido pelo vendedor", "deleted": "Anúncio apagado", "expired": "Expirado",
 };
+// Variantes = outras unidades/modelos à venda no mesmo anúncio, cada uma com id, link, preço e estado.
+// Tolerante aos nomes de campo, já que o scraper não documenta as chaves exatas.
+function normalizeVariants(v) {
+  if (!Array.isArray(v) || !v.length) return null;
+  const out = [];
+  const seen = new Set();
+  for (const x of v) {
+    if (!x || typeof x !== "object") continue;
+    const id = x.id != null ? x.id : (x.itemId != null ? x.itemId : (x.skuId != null ? x.skuId : null));
+    const idStr = id != null ? String(id) : null;
+    const url = x.link || x.url || (idStr ? `https://www.goofish.com/item?id=${idStr}` : null);
+    const price = x.price != null ? x.price : (x.soldPrice != null ? x.soldPrice : (x.priceText != null ? x.priceText : null));
+    const grade = x.grade || x.conditionText || x.condition || x.gradeText || x.title || x.name || null;
+    const key = idStr || `${grade}|${price}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ id: idStr, url: url || null, price: price != null ? price : null, grade: grade || null });
+  }
+  return out.length ? out : null;
+}
+
 function itemAvailability(item) {
   const raw = (item && item.status != null ? String(item.status) : "").trim();
   const qty = item && item.quantity != null ? Number(item.quantity) : null;
@@ -267,11 +288,19 @@ async function getItem(env, id) {
   const tr = await translateMany(env, [...base, ...keys, ...vals]);
   const cond = item.conditionText ? CONDITION_PT[String(item.conditionText).toLowerCase()] || item.conditionText : null;
 
+  // modelos/variantes (quando houver): traduz o estado de cada um
+  let variants = normalizeVariants(item.variants);
+  if (variants) {
+    const gtr = await translateMany(env, variants.map((v) => v.grade || ""));
+    variants = variants.map((v, i) => ({ ...v, gradePt: v.grade ? (gtr[i] || v.grade) : null }));
+  }
+
   return {
     ok: true,
     fetchedAt: new Date().toISOString(),
     item,
     availability: itemAvailability(item),
+    variants,
     pt: {
       title: tr[0],
       description: tr[1],
