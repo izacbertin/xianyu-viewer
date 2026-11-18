@@ -12,6 +12,7 @@
  */
 
 const ITEM_ACTOR = "dami_studio/goofish-scraper";
+const DETAIL_ACTOR = "zen-studio/goofish-xianyu-item-detail-scraper"; // traz o SKU/modelos
 const SELLER_ACTOR = "zen-studio/goofish-xianyu-seller-scraper";
 const PHOTO_REVIEW_ACTOR = "unitbytes/goofish-scraper";
 
@@ -19,7 +20,7 @@ const LLM_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 const FALLBACK_MODEL = "@cf/meta/m2m100-1.2b";
 
 // Every answer is kept in Workers KV (CACHE binding), so the same query is paid to Apify only once per period.
-const CACHE_VERSION = "v7";
+const CACHE_VERSION = "v8";
 const CACHE_SECONDS = {
   item: 24 * 3600,
   seller: 3 * 24 * 3600,
@@ -79,6 +80,32 @@ function normalizeVariants(v) {
     out.push({ id: idStr, url: url || null, price: price != null ? price : null, grade: grade || null });
   }
   return out.length ? out : null;
+}
+
+// Busca os modelos/SKU no scraper de detalhe (zen). Best-effort: se falhar, devolve null.
+async function getItemVariants(env, id) {
+  try {
+    const rows = await runActor(env, DETAIL_ACTOR, { startUrls: [`https://www.goofish.com/item?id=${id}`] });
+    const r = rows.find((x) => x && (Array.isArray(x.variants) || x.title));
+    if (!r) return null;
+    const vs = Array.isArray(r.variants) ? r.variants : [];
+    const norm = vs.map((v) => {
+      if (!v || typeof v !== "object") return null;
+      const props = Array.isArray(v.properties) ? v.properties : [];
+      const label = props.map((p) => p && p.value).filter(Boolean).join(" / ");
+      const price = v.price != null ? v.price : (v.priceInCent != null ? Number(v.priceInCent) / 100 : null);
+      const qty = v.quantity != null ? Number(v.quantity) : null;
+      return { label: label || null, price: price != null ? price : null, quantity: qty };
+    }).filter((v) => v && (v.label || v.price != null));
+    const pr = r.priceRange && typeof r.priceRange === "object" && r.priceRange.min != null ? { min: r.priceRange.min, max: r.priceRange.max } : null;
+    if (norm.length < 2) return { variants: null, priceRange: pr && pr.min !== pr.max ? pr : null };
+    const tr = await translateMany(env, norm.map((v) => v.label || ""));
+    const variants = norm.map((v, i) => ({ label: v.label, labelPt: v.label ? (tr[i] || v.label) : null, price: v.price, quantity: v.quantity }));
+    return { variants, priceRange: pr };
+  } catch (e) {
+    diag.push("variants:" + String(e && e.message || e).slice(0, 80));
+    return null;
+  }
 }
 
 function itemAvailability(item) {
@@ -288,11 +315,17 @@ async function getItem(env, id) {
   const tr = await translateMany(env, [...base, ...keys, ...vals]);
   const cond = item.conditionText ? CONDITION_PT[String(item.conditionText).toLowerCase()] || item.conditionText : null;
 
-  // modelos/variantes (quando houver): traduz o estado de cada um
-  let variants = normalizeVariants(item.variants);
-  if (variants) {
-    const gtr = await translateMany(env, variants.map((v) => v.grade || ""));
-    variants = variants.map((v, i) => ({ ...v, gradePt: v.grade ? (gtr[i] || v.grade) : null }));
+  // modelos/variantes e faixa de preço, do scraper de detalhe (zen)
+  let variants = null, priceRange = null;
+  const vx = await getItemVariants(env, id);
+  if (vx) { variants = vx.variants; priceRange = vx.priceRange; }
+  // reserva: se o zen falhou mas o scraper base trouxe variantes próprias
+  if (!variants) {
+    const dv = normalizeVariants(item.variants);
+    if (dv && dv.length >= 2) {
+      const gtr = await translateMany(env, dv.map((v) => v.grade || ""));
+      variants = dv.map((v, i) => ({ id: v.id, url: v.url, price: v.price, label: v.grade, labelPt: v.grade ? (gtr[i] || v.grade) : null }));
+    }
   }
 
   return {
@@ -301,6 +334,7 @@ async function getItem(env, id) {
     item,
     availability: itemAvailability(item),
     variants,
+    priceRange,
     pt: {
       title: tr[0],
       description: tr[1],

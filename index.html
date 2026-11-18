@@ -66,6 +66,9 @@
   .vnow{background:var(--price);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px;margin-left:4px}
   .vprice{white-space:nowrap;font-size:15px;color:var(--price)}
   .vopen{flex:0 0 auto;padding:5px 10px;font-size:13px}
+  .vrow.vout .vgrade,.vrow.vout .vprice{opacity:.5}
+  .pricerange{font-size:14px;color:var(--ink);margin:2px 0 4px}
+  .pricerange b{color:var(--price)}
   .diy-frow{display:flex;gap:8px;align-items:stretch}
   .diy-val{flex:1;min-width:0;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:14px;color:var(--ink);word-break:break-all;line-height:1.4;max-height:92px;overflow:auto}
   .diy-val.num{font-weight:700;font-size:16px}
@@ -396,20 +399,23 @@
     var it = d.item || {}, pt = d.pt || {};
     var av = d.availability || {active:true};
     var variants = Array.isArray(d.variants) ? d.variants : null;
+    var priceRange = d.priceRange && d.priceRange.min!=null ? d.priceRange : null;
     var variantsHtml = "";
     if(variants && variants.length){
       variantsHtml = '<div class="variants">'+
-        '<div class="vtitle">Modelos neste anúncio ('+variants.length+') — preços diferentes</div>'+
+        '<div class="vtitle">Modelos neste anúncio ('+variants.length+') — cada um com seu preço</div>'+
         variants.map(function(v){
+          var name = v.labelPt||v.label||v.gradePt||v.grade||"Modelo";
           var same = v.id && String(v.id)===String(id);
-          return '<div class="vrow'+(same?' cur':'')+'">'+
-            '<div class="vgrade">'+esc(v.gradePt||v.grade||"Modelo")+(same?' <span class="vnow">este</span>':'')+'</div>'+
+          var out0 = v.quantity===0;
+          return '<div class="vrow'+(same?' cur':'')+(out0?' vout':'')+'">'+
+            '<div class="vgrade">'+esc(name)+(same?' <span class="vnow">este</span>':'')+(out0?' <span class="vnow" style="background:var(--bad)">esgotado</span>':'')+'</div>'+
             '<div class="vprice">'+(v.price!=null?'<b>¥'+esc(v.price)+'</b> '+brlTag(v.price):'—')+'</div>'+
             (v.id && !same ? '<a class="btn vopen" href="?id='+esc(v.id)+'" data-nav>Abrir ›</a>'
-              : (v.id?'': (v.url?'<a class="btn vopen" href="'+esc(v.url)+'#xv-stay" target="_blank" rel="noreferrer">Goofish ›</a>':'')))+
+              : (v.url && !v.id?'<a class="btn vopen" href="'+esc(v.url)+'#xv-stay" target="_blank" rel="noreferrer">Goofish ›</a>':''))+
           '</div>';
         }).join("")+
-        '<div class="hint" style="margin:8px 2px 0">Cada modelo é uma unidade com preço próprio. Confira o preço certo antes de comprar/encomendar no FansBuy.</div>'+
+        '<div class="hint" style="margin:8px 2px 0">No Xianyu você escolhe o modelo e o preço muda. Confira o modelo certo ao comprar/encomendar no FansBuy.</div>'+
       '</div>';
     }
     var images = (Array.isArray(it.images)?it.images:[]).map(img).filter(Boolean);
@@ -451,6 +457,7 @@
             (it.freeShipping ? '<span class="pill">frete grátis na China</span>' : '')+
           '</div>'+
           (it.price!=null ? '<div class="price-brl">'+brlTag(it.price)+'</div>' : '')+
+          (priceRange && priceRange.min!==priceRange.max ? '<div class="pricerange">Preço varia por modelo: <b>¥'+esc(priceRange.min)+' – ¥'+esc(priceRange.max)+'</b> '+brlTag(priceRange.min)+' a '+brlTag(priceRange.max)+'</div>' : '')+
           variantsHtml+
           '<div class="title">'+tx(pt.title, it.title)+'</div>'+
           (stats.length?'<div class="stats">'+stats.map(function(s){return "<span>"+s+"</span>";}).join("")+'</div>':'')+
